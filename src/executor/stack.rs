@@ -600,65 +600,116 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 	type CallInterrupt = Infallible;
 	type CallFeedback = Infallible;
 
-	fn balance(&self, address: H160) -> U256 {
-		self.state.get(&address).map(|v| v.basic.balance)
-			.unwrap_or(self.backend.basic(address).balance)
+	fn balance(&mut self, address: H160) -> U256 {
+		self.state.entry(address).or_insert({
+			StackAccount {
+				/// Basic account information, including nonce and balance.
+				basic: self.backend.basic(address),
+				/// Code. `None` means the code is currently unknown.
+				code: None,
+				/// Storage. Not inserted values mean it is currently known, but not empty.
+				storage: BTreeMap::new(),
+				/// Whether the storage in the database should be reset before storage
+				/// values are applied.
+				reset_storage: false,
+			}
+		}).basic.balance
+
 	}
 
-	fn code_size(&self, address: H160) -> U256 {
-		U256::from(
-			self.state.get(&address).and_then(|v| v.code.as_ref().map(|c| c.len()))
-				.unwrap_or(self.backend.code_size(address))
-		)
-	}
+	fn code_size(&mut self, address: H160) -> U256 {
+		let acct = self.state.entry(address).or_insert({
+			StackAccount {
+				/// Basic account information, including nonce and balance.
+				basic: self.backend.basic(address),
+				/// Code. `None` means the code is currently unknown.
+				code: Some(self.backend.code(address)),
+				/// Storage. Not inserted values mean it is currently known, but not empty.
+				storage: BTreeMap::new(),
+				/// Whether the storage in the database should be reset before storage
+				/// values are applied.
+				reset_storage: false,
+			}
+		});
 
-	fn code_hash(&self, address: H160) -> H256 {
-		if !self.exists(address) {
-			return H256::default()
-		}
-
-		let (balance, nonce, code_size) = if let Some(account) = self.state.get(&address) {
-			(account.basic.balance, account.basic.nonce,
-			 account.code.as_ref().map(|c| U256::from(c.len())).unwrap_or(self.code_size(address)))
+		if let Some(c) = acct.code.clone() {
+			U256::from(c.len())
 		} else {
-			let basic = self.backend.basic(address);
-			(basic.balance, basic.nonce, U256::from(self.backend.code_size(address)))
-		};
-
-		if balance == U256::zero() && nonce == U256::zero() && code_size == U256::zero() {
-			return H256::default()
+			acct.code = Some(self.backend.code(address));
+			U256::from(acct.code.clone().unwrap().len())
 		}
-
-		let value = self.state.get(&address).and_then(|v| {
-			v.code.as_ref().map(|c| {
-				H256::from_slice(Keccak256::digest(&c).as_slice())
-			})
-		}).unwrap_or(self.backend.code_hash(address));
-		value
 	}
 
-	fn code(&self, address: H160) -> Vec<u8> {
-		self.state.get(&address).and_then(|v| {
-			v.code.clone()
-		}).unwrap_or(self.backend.code(address))
+	fn code_hash(&mut self, address: H160) -> H256 {
+		let acct = self.state.entry(address).or_insert({
+			StackAccount {
+				/// Basic account information, including nonce and balance.
+				basic: self.backend.basic(address),
+				/// Code. `None` means the code is currently unknown.
+				code: Some(self.backend.code(address)),
+				/// Storage. Not inserted values mean it is currently known, but not empty.
+				storage: BTreeMap::new(),
+				/// Whether the storage in the database should be reset before storage
+				/// values are applied.
+				reset_storage: false,
+			}
+		});
+
+		if let Some(c) = acct.code.clone() {
+			H256::from_slice(Keccak256::digest(&c).as_slice())
+		} else {
+			acct.code = Some(self.backend.code(address));
+			H256::from_slice(Keccak256::digest(&acct.code.clone().unwrap()).as_slice())
+		}
 	}
 
-	fn storage(&self, address: H160, index: H256) -> H256 {
-		self.state.get(&address)
-			.and_then(|v| {
-				let s = v.storage.get(&index).cloned();
+	fn code(&mut self, address: H160) -> Vec<u8> {
+		let acct = self.state.entry(address).or_insert({
+			StackAccount {
+				/// Basic account information, including nonce and balance.
+				basic: self.backend.basic(address),
+				/// Code. `None` means the code is currently unknown.
+				code: Some(self.backend.code(address)),
+				/// Storage. Not inserted values mean it is currently known, but not empty.
+				storage: BTreeMap::new(),
+				/// Whether the storage in the database should be reset before storage
+				/// values are applied.
+				reset_storage: false,
+			}
+		});
 
-				if v.reset_storage {
-					Some(s.unwrap_or(H256::default()))
-				} else {
-					s
-				}
-
-			})
-			.unwrap_or(self.backend.storage(address, index))
+		if let Some(c) = acct.code.clone() {
+			c
+		} else {
+			acct.code = Some(self.backend.code(address));
+			acct.code.clone().unwrap()
+		}
 	}
 
-	fn original_storage(&self, address: H160, index: H256) -> H256 {
+	fn storage(&mut self, address: H160, index: H256) -> H256 {
+		let acct = self.state.entry(address).or_insert({
+			StackAccount {
+				/// Basic account information, including nonce and balance.
+				basic: self.backend.basic(address),
+				/// Code. `None` means the code is currently unknown.
+				code: Some(self.backend.code(address)),
+				/// Storage. Not inserted values mean it is currently known, but not empty.
+				storage: BTreeMap::new(),
+				/// Whether the storage in the database should be reset before storage
+				/// values are applied.
+				reset_storage: false,
+			}
+		});
+		if let Some(storage_data) = acct.storage.get(&index) {
+			storage_data.clone()
+		} else {
+			let storage_data = self.backend.storage(address, index);
+			acct.storage.insert(index, storage_data);
+			storage_data
+		}
+	}
+
+	fn original_storage(&mut self, address: H160, index: H256) -> H256 {
 		if let Some(account) = self.state.get(&address) {
 			if account.reset_storage {
 				return H256::default()

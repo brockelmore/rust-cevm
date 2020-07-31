@@ -38,14 +38,14 @@ pub fn address<H: Handler>(runtime: &mut Runtime) -> Control<H> {
 	Control::Continue
 }
 
-pub fn balance<H: Handler>(runtime: &mut Runtime, handler: &H) -> Control<H> {
+pub fn balance<H: Handler>(runtime: &mut Runtime, handler: &mut H) -> Control<H> {
 	pop!(runtime, address);
 	push_u256!(runtime, handler.balance(address.into()));
 
 	Control::Continue
 }
 
-pub fn selfbalance<H: Handler>(runtime: &mut Runtime, handler: &H) -> Control<H> {
+pub fn selfbalance<H: Handler>(runtime: &mut Runtime, handler: &mut H) -> Control<H> {
 	push_u256!(runtime, handler.balance(runtime.context.address));
 
 	Control::Continue
@@ -81,21 +81,21 @@ pub fn gasprice<H: Handler>(runtime: &mut Runtime, handler: &H) -> Control<H> {
 	Control::Continue
 }
 
-pub fn extcodesize<H: Handler>(runtime: &mut Runtime, handler: &H) -> Control<H> {
+pub fn extcodesize<H: Handler>(runtime: &mut Runtime, handler: &mut H) -> Control<H> {
 	pop!(runtime, address);
 	push_u256!(runtime, handler.code_size(address.into()));
 
 	Control::Continue
 }
 
-pub fn extcodehash<H: Handler>(runtime: &mut Runtime, handler: &H) -> Control<H> {
+pub fn extcodehash<H: Handler>(runtime: &mut Runtime, handler: &mut H) -> Control<H> {
 	pop!(runtime, address);
 	push!(runtime, handler.code_hash(address.into()));
 
 	Control::Continue
 }
 
-pub fn extcodecopy<H: Handler>(runtime: &mut Runtime, handler: &H) -> Control<H> {
+pub fn extcodecopy<H: Handler>(runtime: &mut Runtime, handler: &mut H) -> Control<H> {
 	pop!(runtime, address);
 	pop_u256!(runtime, memory_offset, code_offset, len);
 
@@ -169,7 +169,7 @@ pub fn gaslimit<H: Handler>(runtime: &mut Runtime, handler: &H) -> Control<H> {
 	Control::Continue
 }
 
-pub fn sload<H: Handler>(runtime: &mut Runtime, handler: &H) -> Control<H> {
+pub fn sload<H: Handler>(runtime: &mut Runtime, handler: &mut H) -> Control<H> {
 	pop!(runtime, index);
 	push!(runtime, handler.storage(runtime.context.address, index));
 

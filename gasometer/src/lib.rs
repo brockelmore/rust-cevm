@@ -225,7 +225,7 @@ pub fn opcode_cost<H: Handler>(
 	stack: &Stack,
 	is_static: bool,
 	config: &Config,
-	handler: &H
+	handler: &mut H
 ) -> Result<(GasCost, Option<MemoryCost>), ExitError> {
 	let gas_cost = match opcode {
 		Ok(Opcode::Stop) | Ok(Opcode::Return) => GasCost::Zero,
