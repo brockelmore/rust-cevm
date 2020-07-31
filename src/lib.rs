@@ -13,3 +13,4 @@ pub use evm_gasometer as gasometer;
 
 pub mod executor;
 pub mod backend;
+pub mod provider;

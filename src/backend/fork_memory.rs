@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 use alloc::collections::BTreeMap;
 use primitive_types::{H160, H256, U256};
 use sha3::{Digest, Keccak256};
-use super::{Basic, Backend, ApplyBackend, Apply, Log, MemoryVicinity, MemoryAccount};
+use super::{Basic, Backend, ApplyBackend, Apply, Log, MemoryVicinity, MemoryAccount, Provider};
 
 
 /// Memory backend with ability to fork another chain from an HTTP provider, storing all state values in a `BTreeMap` in memory.
@@ -11,7 +11,7 @@ pub struct ForkMemoryBackend<'vicinity> {
 	vicinity: &'vicinity MemoryVicinity,
 	state: BTreeMap<H160, MemoryAccount>,
 	logs: Vec<Log>,
-	provider: String,
+	provider: Provider,
 	block_number: Option<U256>,
 }
 
@@ -22,7 +22,7 @@ impl<'vicinity> ForkMemoryBackend<'vicinity> {
 			vicinity,
 			state,
 			logs: Vec::new(),
-			provider,
+			provider: Provider::new(provider),
 			block_number
 		}
 	}
@@ -54,8 +54,18 @@ impl<'vicinity> Backend for ForkMemoryBackend<'vicinity> {
 
 	fn chain_id(&self) -> U256 { self.vicinity.chain_id }
 
-	fn exists(&self, address: H160) -> bool {
-		self.state.contains_key(&address)
+	fn exists(&mut self, address: H160) -> bool {
+		self.state.contains_key(&address) || (
+			(self.provider
+				.get_balance(address, self.block_number)
+				.unwrap_or_default() != U256::default())
+			|| (self.provider
+				.get_transaction_count(address, self.block_number)
+				.unwrap_or_default() != U256::default())
+			|| (self.provider
+				.get_code(address, self.block_number)
+				.unwrap_or_default() != Bytes::default())
+		)
 	}
 
 	fn basic(&self, address: H160) -> Basic {
