@@ -1,8 +1,14 @@
 use alloc::vec::Vec;
 use alloc::collections::BTreeMap;
 use primitive_types::{H160, H256, U256};
+use ethers_core::types::{BlockNumber};
 use sha3::{Digest, Keccak256};
-use super::{Basic, Backend, ApplyBackend, Apply, Log, MemoryVicinity, MemoryAccount, Provider};
+use super::{Basic, Backend, ApplyBackend, Apply, Log, MemoryVicinity, MemoryAccount};
+// #[cfg(feature = "web")]
+// use crate::provider::webprovider::Provider;
+
+#[cfg(feature = "local")]
+use crate::provider::localprovider::Provider;
 
 
 /// Memory backend with ability to fork another chain from an HTTP provider, storing all state values in a `BTreeMap` in memory.
@@ -12,12 +18,12 @@ pub struct ForkMemoryBackend<'vicinity> {
 	state: BTreeMap<H160, MemoryAccount>,
 	logs: Vec<Log>,
 	provider: Provider,
-	block_number: Option<U256>,
+	block_number: Option<BlockNumber>,
 }
 
 impl<'vicinity> ForkMemoryBackend<'vicinity> {
 	/// Create a new memory backend.
-	pub fn new(vicinity: &'vicinity MemoryVicinity, state: BTreeMap<H160, MemoryAccount>, provider: String, block_number: Option<U256>) -> Self {
+	pub fn new(vicinity: &'vicinity MemoryVicinity, state: BTreeMap<H160, MemoryAccount>, provider: String, block_number: Option<BlockNumber>) -> Self {
 		Self {
 			vicinity,
 			state,
@@ -54,17 +60,14 @@ impl<'vicinity> Backend for ForkMemoryBackend<'vicinity> {
 
 	fn chain_id(&self) -> U256 { self.vicinity.chain_id }
 
-	fn exists(&mut self, address: H160) -> bool {
+	fn exists(&self, address: H160) -> bool {
 		self.state.contains_key(&address) || (
 			(self.provider
-				.get_balance(address, self.block_number)
-				.unwrap_or_default() != U256::default())
+				.get_balance(address, self.block_number) != U256::default())
 			|| (self.provider
-				.get_transaction_count(address, self.block_number)
-				.unwrap_or_default() != U256::default())
+				.get_transaction_count(address, self.block_number) != U256::default())
 			|| (self.provider
-				.get_code(address, self.block_number)
-				.unwrap_or_default() != Bytes::default())
+				.get_code(address, self.block_number).as_ref().to_vec() != Vec::<u8>::new())
 		)
 	}
 
@@ -73,8 +76,8 @@ impl<'vicinity> Backend for ForkMemoryBackend<'vicinity> {
 			Basic { balance: a.balance, nonce: a.nonce }
 		}).unwrap_or_else(|| {
 			Basic {
-				balance: self.provider.get_balance(address, self.block_number).expect("bad get balance"),
-				nonce: self.provider.get_transaction_count(address, self.block_number).expect("bad get nonce")
+				balance: self.provider.get_balance(address, self.block_number),
+				nonce: self.provider.get_transaction_count(address, self.block_number)
 			}
 		})
 	}
@@ -83,33 +86,33 @@ impl<'vicinity> Backend for ForkMemoryBackend<'vicinity> {
 		self.state.get(&address).map(|v| {
 			H256::from_slice(Keccak256::digest(&v.code).as_slice())
 		}).unwrap_or_else( || {
-			let code = self.provider.get_code(address, self.block_number).expect("bad get code");
+			let code = self.provider.get_code(address, self.block_number);
 			H256::from_slice(Keccak256::digest(&code.as_ref().to_vec()).as_slice())
 		})
 	}
 
 	fn code_size(&self, address: H160) -> usize {
 		self.state.get(&address).map(|v| v.code.len()).unwrap_or_else( || {
-			let code = self.provider.get_code(address, self.block_number).expect("bad get code");
-			U256::from(code.as_ref().to_vec().len())
+			let code = self.provider.get_code(address, self.block_number);
+			code.as_ref().to_vec().len()
 		})
 	}
 
 	fn code(&self, address: H160) -> Vec<u8> {
 		self.state.get(&address).map(|v| v.code.clone()).unwrap_or_else( || {
-			self.provider.get_code(address, self.block_number).expect("bad get code").as_ref().to_vec()
+			self.provider.get_code(address, self.block_number).as_ref().to_vec()
 		})
 	}
 
 	fn storage(&self, address: H160, index: H256) -> H256 {
 		if let Some(acct) = self.state.get(&address) {
 			if let Some(store_data) = acct.storage.get(&index) {
-				store_data
+				store_data.clone()
 			} else {
-				self.provider.get_storage_at(address, index).expect("bad get storage slot")
+				self.provider.get_storage_at(address, index, self.block_number)
 			}
 		} else {
-			self.provider.get_storage_at(address, index).expect("bad get storage slot")
+			self.provider.get_storage_at(address, index, self.block_number)
 		}
 	}
 }

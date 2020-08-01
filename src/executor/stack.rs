@@ -149,12 +149,13 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 		value: U256,
 		init_code: Vec<u8>,
 		gas_limit: usize,
-	) -> ExitReason {
+	) -> (ExitReason, Option<H160>) {
 		let transaction_cost = gasometer::create_transaction_cost(&init_code);
 		match self.gasometer.record_transaction(transaction_cost) {
 			Ok(()) => (),
-			Err(e) => return e.into(),
+			Err(e) => return (e.into(), None),
 		}
+
 
 		match self.create_inner(
 			caller,
@@ -164,7 +165,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			Some(gas_limit),
 			false,
 		) {
-			Capture::Exit((s, _, _)) => s,
+			Capture::Exit((s, a, _)) => (s, a),
 			Capture::Trap(_) => unreachable!(),
 		}
 	}
@@ -177,11 +178,11 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 		init_code: Vec<u8>,
 		salt: H256,
 		gas_limit: usize,
-	) -> ExitReason {
+	) -> (ExitReason, Option<H160>) {
 		let transaction_cost = gasometer::create_transaction_cost(&init_code);
 		match self.gasometer.record_transaction(transaction_cost) {
 			Ok(()) => (),
-			Err(e) => return e.into(),
+			Err(e) => return (e.into(), None),
 		}
 		let code_hash = H256::from_slice(Keccak256::digest(&init_code).as_slice());
 
@@ -193,7 +194,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			Some(gas_limit),
 			false,
 		) {
-			Capture::Exit((s, _, _)) => s,
+			Capture::Exit((s, a, _)) => (s, a),
 			Capture::Trap(_) => unreachable!(),
 		}
 	}
@@ -378,6 +379,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 		}
 
 		let mut after_gas = self.gasometer.gas();
+
 		if take_l64 && self.config.call_l64_after_gas {
 			after_gas = l64(after_gas);
 		}
@@ -387,6 +389,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 		try_or_fail!(self.gasometer.record_cost(gas_limit));
 
 		let address = self.create_address(scheme);
+
+		println!("Created address: {:?}", address);
+
 		self.account_mut(caller).basic.nonce += U256::one();
 
 		let mut substate = self.substate(gas_limit, false);
@@ -452,6 +457,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 
 				if let Some(limit) = self.config.create_contract_limit {
 					if out.len() > limit {
+						println!("error 0");
 						substate.gasometer.fail();
 						let _ = self.merge_fail(substate);
 						return Capture::Exit((ExitError::CreateContractLimit.into(), None, Vec::new()))
@@ -473,6 +479,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 				}
 			},
 			ExitReason::Error(e) => {
+				println!("error, {:?}", e);
 				substate.gasometer.fail();
 				let _ = self.merge_fail(substate);
 				Capture::Exit((ExitReason::Error(e), None, Vec::new()))
@@ -482,6 +489,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 				Capture::Exit((ExitReason::Revert(e), None, runtime.machine().return_value()))
 			},
 			ExitReason::Fatal(e) => {
+				println!("fatal error, {:?}", e);
 				self.gasometer.fail();
 				Capture::Exit((ExitReason::Fatal(e), None, Vec::new()))
 			},

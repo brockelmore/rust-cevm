@@ -1,48 +1,3 @@
-# CompEVM: Rust Ethereum Virtual Machine Implementation designed for Smart Contract Composability testing
-
-This is a fork of SputnikVM, with additional features. Big shoutout to them.
-
-## Features
-
-* **Standalone** - can be launched as an independent process or integrated into other apps
-* **Universal** - supports different Ethereum chains, such as ETC, ETH or private ones
-* **Stateless** - only an execution environment connected to independent State storage
-* **Fast** - focus is on performance
-* **Forking** - Supports forking of another chain to enable composability testing that doesn't totally suck
-* written in Rust, can be used as a binary, cargo crate or shared
-  library. WASM compatible (WIP)
-
-## Dependencies
-
-Ensure you have at least `rustc 1.33.0 (2aa4c46cf 2019-02-28)`. Rust 1.32.0 and
-before is not supported.
-
-## Documentation
-
-<!-- * [Latest release documentation](https://docs.rs/cevm) -->
-
-## Build from sources
-
-C(omp)EVM is written Rust. If you are not familiar with Rust please
-see the
-[getting started guide](https://doc.rust-lang.org/book/getting-started.html).
-
-### Build
-
-To start working with CEVM you'll
-need to install [rustup](https://www.rustup.rs/), then you can do:
-
-```bash
-$ git clone https://github.com/brockelmore/rust-cevm.git
-$ cd rust-cevm
-$ cargo build --release --all
-```
-
-### Usage
-
-Run this example from `implementation`
-
-```
 use primitive_types::*;
 use evm::{backend::*, executor::{StackAccount, StackExecutor}, Config, Handler};
 use ethers_core::types::*;
@@ -154,14 +109,3 @@ fn from_slice(bytes: &[u8]) -> [u8; 32] {
     array.copy_from_slice(bytes);
     array
 }
-
-```
-
-
-```
-$ cargo run -- <your web3 provider
-```
-
-## License
-
-Apache 2.0
