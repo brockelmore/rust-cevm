@@ -98,6 +98,11 @@ fn main() {
 		hex::decode("48c8ec72").unwrap(),
 		50000,
 	);
+
+    let (applies, logs) = exec.deconstruct();
+    backend.apply(applies, logs, false);
+
+
     // we expect a H160 response, equal to 0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc, so decode it below
     println!("ret: {:?}", H160::from_slice(&ret.1[12..]));
 

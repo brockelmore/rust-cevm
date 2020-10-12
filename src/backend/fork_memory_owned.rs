@@ -1,7 +1,6 @@
 use alloc::vec::Vec;
 use alloc::collections::BTreeMap;
 use primitive_types::{H160, H256, U256};
-
 use sha3::{Digest, Keccak256};
 use super::{Basic, Backend, ApplyBackend, Apply, Log, MemoryVicinity, MemoryAccount, TxReceipt};
 // #[cfg(feature = "web")]
@@ -11,10 +10,13 @@ use super::{Basic, Backend, ApplyBackend, Apply, Log, MemoryVicinity, MemoryAcco
 use crate::provider::localprovider::Provider;
 
 
+
+
 /// Memory backend with ability to fork another chain from an HTTP provider, storing all state values in a `BTreeMap` in memory.
 #[derive(Clone, Debug)]
-pub struct ForkMemoryBackend<'vicinity> {
-	vicinity: &'vicinity MemoryVicinity,
+pub struct ForkMemoryBackendOwned {
+	/// backend vicinity
+	pub vicinity: MemoryVicinity,
 	state: BTreeMap<H160, MemoryAccount>,
 	archive_state: BTreeMap<U256, BTreeMap<H160, MemoryAccount>>,
 	logs: BTreeMap<U256, Vec<Log>>,
@@ -23,11 +25,11 @@ pub struct ForkMemoryBackend<'vicinity> {
 	tx_history: BTreeMap<H256, TxReceipt>
 }
 
-impl<'vicinity> ForkMemoryBackend<'vicinity> {
+impl ForkMemoryBackendOwned {
 	/// Create a new memory backend.
-	pub fn new(vicinity: &'vicinity MemoryVicinity, state: BTreeMap<H160, MemoryAccount>, provider: String) -> Self {
+	pub fn new(vicinity: MemoryVicinity, state: BTreeMap<H160, MemoryAccount>, provider: String) -> Self {
 		Self {
-			vicinity,
+			vicinity: vicinity.clone(),
 			state,
 			archive_state: BTreeMap::new(),
 			logs: BTreeMap::new(),
@@ -43,7 +45,7 @@ impl<'vicinity> ForkMemoryBackend<'vicinity> {
 	}
 }
 
-impl<'vicinity> Backend for ForkMemoryBackend<'vicinity> {
+impl Backend for ForkMemoryBackendOwned {
 	fn gas_price(&self) -> U256 { self.vicinity.gas_price }
 	fn origin(&self) -> H160 { self.vicinity.origin }
 	fn block_hash(&self, number: U256) -> H256 {
@@ -129,7 +131,7 @@ impl<'vicinity> Backend for ForkMemoryBackend<'vicinity> {
     }
 }
 
-impl<'vicinity> ApplyBackend for ForkMemoryBackend<'vicinity> {
+impl ApplyBackend for ForkMemoryBackendOwned {
 	fn apply<A, I, L>(
 		&mut self,
 		block: U256,

@@ -1,8 +1,36 @@
+//! # EVM backends
+//!
+//! Memory stuff
+
 use alloc::vec::Vec;
 use alloc::collections::BTreeMap;
 use primitive_types::{H160, H256, U256};
 use sha3::{Digest, Keccak256};
 use super::{Basic, Backend, ApplyBackend, Apply, Log};
+
+/// Transaction receipt
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "with-serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct TxReceipt {
+	/// Transaction hash
+	pub hash: H256,
+	/// From address
+	pub caller: H160,
+	/// to Address
+	pub to: Option<H160>,
+	/// Block Number
+	pub block_number: U256,
+	/// total gas used up
+	pub cumulative_gas_used: usize,
+	/// gas used for this tx
+	pub gas_used: usize,
+	/// Created contract address
+	pub contract_address: Option<H160>,
+	/// Logs
+	pub logs: Vec<Log>,
+	/// Success/fail
+	pub status: usize,
+}
 
 /// Vivinity value of a memory backend.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -47,7 +75,10 @@ pub struct MemoryAccount {
 pub struct MemoryBackend<'vicinity> {
 	vicinity: &'vicinity MemoryVicinity,
 	state: BTreeMap<H160, MemoryAccount>,
-	logs: Vec<Log>,
+	archive_state: BTreeMap<U256, BTreeMap<H160, MemoryAccount>>,
+	local_block_num: U256,
+	logs: BTreeMap<U256, Vec<Log>>,
+	tx_history: BTreeMap<H256, TxReceipt>
 }
 
 impl<'vicinity> MemoryBackend<'vicinity> {
@@ -56,7 +87,10 @@ impl<'vicinity> MemoryBackend<'vicinity> {
 		Self {
 			vicinity,
 			state,
-			logs: Vec::new(),
+			archive_state: BTreeMap::new(),
+			local_block_num: vicinity.block_number.clone(),
+			logs: BTreeMap::new(),
+			tx_history: BTreeMap::new()
 		}
 	}
 
@@ -116,56 +150,107 @@ impl<'vicinity> Backend for MemoryBackend<'vicinity> {
 			.map(|v| v.storage.get(&index).cloned().unwrap_or(H256::default()))
 			.unwrap_or(H256::default())
 	}
+
+	fn tx_receipt(&self, hash: H256) -> TxReceipt {
+        if let Some(txrec) = self.tx_history.get(&hash) {
+			txrec.clone()
+		} else {
+			TxReceipt::default()
+		}
+    }
 }
 
 impl<'vicinity> ApplyBackend for MemoryBackend<'vicinity> {
 	fn apply<A, I, L>(
 		&mut self,
+		block: U256,
 		values: A,
 		logs: L,
+		recs: Vec<TxReceipt>,
 		delete_empty: bool,
 	) where
 		A: IntoIterator<Item=Apply<I>>,
 		I: IntoIterator<Item=(H256, H256)>,
 		L: IntoIterator<Item=Log>,
 	{
+		let mut tip = false;
+		if block == self.local_block_num {
+			tip = true;
+		}
 		for apply in values {
 			match apply {
 				Apply::Modify {
 					address, basic, code, storage, reset_storage,
 				} => {
 					let is_empty = {
-						let account = self.state.entry(address).or_insert(Default::default());
-						account.balance = basic.balance;
-						account.nonce = basic.nonce;
-						if let Some(code) = code {
-							account.code = code;
-						}
 
-						if reset_storage {
-							account.storage = BTreeMap::new();
-						}
-
-						let zeros = account.storage.iter()
-							.filter(|(_, v)| v == &&H256::default())
-							.map(|(k, _)| k.clone())
-							.collect::<Vec<H256>>();
-
-						for zero in zeros {
-							account.storage.remove(&zero);
-						}
-
-						for (index, value) in storage {
-							if value == H256::default() {
-								account.storage.remove(&index);
-							} else {
-								account.storage.insert(index, value);
+						if tip {
+							let account = self.state.entry(address).or_insert(Default::default());
+							account.balance = basic.balance;
+							account.nonce = basic.nonce;
+							if let Some(code) = code {
+								account.code = code;
 							}
-						}
 
-						account.balance == U256::zero() &&
-							account.nonce == U256::zero() &&
-							account.code.len() == 0
+							if reset_storage {
+								account.storage = BTreeMap::new();
+							}
+
+							let zeros = account.storage.iter()
+								.filter(|(_, v)| v == &&H256::default())
+								.map(|(k, _)| k.clone())
+								.collect::<Vec<H256>>();
+
+							for zero in zeros {
+								account.storage.remove(&zero);
+							}
+
+							for (index, value) in storage {
+								if value == H256::default() {
+									account.storage.remove(&index);
+								} else {
+									account.storage.insert(index, value);
+								}
+							}
+
+							account.balance == U256::zero() &&
+								account.nonce == U256::zero() &&
+								account.code.len() == 0
+						} else {
+							// changes arent for this blocking
+							let archive = self.archive_state.entry(block).or_insert(Default::default());
+							let account = archive.entry(address).or_insert(Default::default());
+							account.balance = basic.balance;
+							account.nonce = basic.nonce;
+							if let Some(code) = code {
+								account.code = code;
+							}
+
+							if reset_storage {
+								account.storage = BTreeMap::new();
+							}
+
+							let zeros = account.storage.iter()
+								.filter(|(_, v)| v == &&H256::default())
+								.map(|(k, _)| k.clone())
+								.collect::<Vec<H256>>();
+
+							for zero in zeros {
+								account.storage.remove(&zero);
+							}
+
+							for (index, value) in storage {
+								if value == H256::default() {
+									account.storage.remove(&index);
+								} else {
+									account.storage.insert(index, value);
+								}
+							}
+
+							account.balance == U256::zero() &&
+								account.nonce == U256::zero() &&
+								account.code.len() == 0
+						}
 					};
 
 					if is_empty && delete_empty {
@@ -180,8 +265,15 @@ impl<'vicinity> ApplyBackend for MemoryBackend<'vicinity> {
 			}
 		}
 
+		let ls = self.logs.entry(block).or_insert(Vec::new());
+		let mut f = ls.clone();
 		for log in logs {
-			self.logs.push(log);
+			f.push(log);
+		}
+		*ls = f;
+
+		for rec in recs {
+			self.tx_history.insert(rec.hash, rec);
 		}
 	}
 }

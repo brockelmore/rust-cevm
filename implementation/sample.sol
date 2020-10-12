@@ -1,4 +1,4 @@
-pragma solidity 0.5.16;
+pragma solidity 0.5.15;
 
 interface IUniswapV2Factory {
     event PairCreated(address indexed token0, address indexed token1, address pair, uint);
@@ -17,18 +17,22 @@ interface IUniswapV2Factory {
 }
 
 
+interface Hevm {
+  function roll(uint256) external;
+}
+
 contract Sample {
 
   address constant UNI_FACT = address(0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f);
+
+  Hevm hevm = Hevm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
   constructor() public {
 
   }
 
   function test() public returns (uint256) {
-    uint256 a = 100;
-    uint256 b = 200;
-    return a * b;
+      hevm.roll(10);
   }
 
   function getUniPair() public returns (address) {

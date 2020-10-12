@@ -7,46 +7,25 @@ use primitive_types::{U256, H256, H160};
 use sha3::{Keccak256, Digest};
 use crate::{ExitError, Stack, ExternalOpcode, Opcode, Capture, Handler, Transfer,
 			Context, CreateScheme, Runtime, ExitReason, ExitSucceed, Config};
-use crate::backend::{Log, Basic, Apply, Backend, memory::TxReceipt};
-use crate::gasometer::{self, Gasometer};
+use crate::backend::{Log, Apply, Backend, memory::TxReceipt};
+use crate::gasometer::{self, GasometerOwned};
+use super::stack::StackAccount;
 
-/// Account definition for the stack-based executor.
-#[derive(Default, Clone, Debug, Eq, PartialEq)]
-pub struct StackAccount {
-	/// Basic account information, including nonce and balance.
-	pub basic: Basic,
-	/// Code. `None` means the code is currently unknown.
-	pub code: Option<Vec<u8>>,
-	/// Storage. Not inserted values mean it is currently known, but not empty.
-	pub storage: BTreeMap<H256, H256>,
-	/// Whether the storage in the database should be reset before storage
-	/// values are applied.
-	pub reset_storage: bool,
-}
 
 /// Stack-based executor.
 #[derive(Clone)]
-pub struct StackExecutor<'backend, 'config, B> {
-	/// Backend for data
-	pub backend: &'backend B,
-	/// Config
-	pub config: &'config Config,
-	/// Gas tracker
-	pub gasometer: Gasometer<'config>,
-	/// State
-	pub state: BTreeMap<H160, StackAccount>,
-	/// Deleted Addrs
-	pub deleted: BTreeSet<H160>,
-	/// emitted logs
-	pub logs: Vec<Log>,
-	/// Precompiles
-	pub precompile: fn(H160, &[u8], Option<usize>) -> Option<Result<(ExitSucceed, Vec<u8>, usize), ExitError>>,
-	/// is static flag
-	pub is_static: bool,
-	/// Recursion depth
-	pub depth: Option<usize>,
-	/// Txs that are pending
-	pub pending_txs: Vec<TxReceipt>
+pub struct StackExecutorOwned<B> {
+	/// Executor backend
+	pub backend: B,
+	config: Config,
+	gasometer: GasometerOwned,
+	state: BTreeMap<H160, StackAccount>,
+	deleted: BTreeSet<H160>,
+	logs: Vec<Log>,
+	precompile: fn(H160, &[u8], Option<usize>) -> Option<Result<(ExitSucceed, Vec<u8>, usize), ExitError>>,
+	is_static: bool,
+	depth: Option<usize>,
+	pending_txs: Vec<TxReceipt>
 }
 
 fn no_precompile(
@@ -57,26 +36,26 @@ fn no_precompile(
 	None
 }
 
-impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
+impl<B: 'static + Backend + Clone + std::marker::Unpin> StackExecutorOwned<B> {
 	/// Create a new stack-based executor.
 	pub fn new(
-		backend: &'backend B,
+		backend: B,
 		gas_limit: usize,
-		config: &'config Config,
+		config: Config,
 	) -> Self {
 		Self::new_with_precompile(backend, gas_limit, config, no_precompile)
 	}
 
 	/// Create a new stack-based executor with given precompiles.
 	pub fn new_with_precompile(
-		backend: &'backend B,
+		backend: B,
 		gas_limit: usize,
-		config: &'config Config,
+		config: Config,
 		precompile: fn(H160, &[u8], Option<usize>) -> Option<Result<(ExitSucceed, Vec<u8>, usize), ExitError>>,
 	) -> Self {
 		Self {
 			backend,
-			gasometer: Gasometer::new(gas_limit, config),
+			gasometer: GasometerOwned::new(gas_limit, config.clone()),
 			state: BTreeMap::new(),
 			deleted: BTreeSet::new(),
 			config,
@@ -84,26 +63,26 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			precompile: precompile,
 			is_static: false,
 			depth: None,
-			pending_txs: Vec::new()
+			pending_txs: Vec::new(),
 		}
 	}
 
 	/// Create a substate executor from the current executor.
-	pub fn substate(&self, gas_limit: usize, is_static: bool) -> StackExecutor<'backend, 'config, B> {
+	pub fn substate(&self, gas_limit: usize, is_static: bool) -> StackExecutorOwned<B> {
 		Self {
-			backend: self.backend,
-			gasometer: Gasometer::new(gas_limit, self.gasometer.config()),
-			config: self.config,
+			backend: self.backend.clone(),
+			gasometer: GasometerOwned::new(gas_limit, self.gasometer.config()),
+			config: self.config.clone(),
 			state: self.state.clone(),
 			deleted: self.deleted.clone(),
-			logs: self.logs.clone(),
+			logs: Vec::new(),
 			precompile: self.precompile,
 			is_static: is_static || self.is_static,
 			depth: match self.depth {
 				None => Some(0),
 				Some(n) => Some(n + 1),
 			},
-			pending_txs: Vec::new()
+			pending_txs: Vec::new(),
 		}
 	}
 
@@ -121,9 +100,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 	}
 
 	/// Merge a substate executor that succeeded.
-	pub fn merge_succeed<'obackend, 'oconfig, OB>(
+	pub fn merge_succeed<OB>(
 		&mut self,
-		mut substate: StackExecutor<'obackend, 'oconfig, OB>
+		mut substate: StackExecutorOwned<OB>
 	) -> Result<(), ExitError> {
 		self.logs.append(&mut substate.logs);
 		self.deleted.append(&mut substate.deleted);
@@ -135,9 +114,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 	}
 
 	/// Merge a substate executor that reverted.
-	pub fn merge_revert<'obackend, 'oconfig, OB>(
+	pub fn merge_revert<OB>(
 		&mut self,
-		mut substate: StackExecutor<'obackend, 'oconfig, OB>
+		mut substate: StackExecutorOwned<OB>
 	) -> Result<(), ExitError> {
 		self.logs.append(&mut substate.logs);
 
@@ -146,9 +125,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 	}
 
 	/// Merge a substate executor that failed.
-	pub fn merge_fail<'obackend, 'oconfig, OB>(
+	pub fn merge_fail<OB>(
 		&mut self,
-		mut substate: StackExecutor<'obackend, 'oconfig, OB>
+		mut substate: StackExecutorOwned<OB>
 	) -> Result<(), ExitError> {
 		self.logs.append(&mut substate.logs);
 
@@ -169,6 +148,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			Ok(()) => (),
 			Err(e) => return (e.into(), None),
 		}
+
 
 
 		let exit = self.create_inner(
@@ -309,7 +289,6 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			logs: self.logs.clone(),
 			status,
 		});
-
 		match exit {
 			Capture::Exit((s, v)) => (s, v),
 			Capture::Trap(_) => unreachable!(),
@@ -338,9 +317,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 	pub fn deconstruct(
 		self
 	) -> (impl IntoIterator<Item=Apply<impl IntoIterator<Item=(H256, H256)>>>,
-		  impl IntoIterator<Item=Log>,
-		  Vec<TxReceipt>
-	  )
+		  impl IntoIterator<Item=Log>)
 	{
 		let mut applies = Vec::<Apply<BTreeMap<H256, H256>>>::new();
 
@@ -363,41 +340,24 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 		}
 
 		let logs = self.logs;
-		let txs = self.pending_txs;
 
-		(applies, logs, txs)
+		(applies, logs)
 	}
 
 	/// Get mutable account reference.
 	pub fn account_mut(&mut self, address: H160) -> &mut StackAccount {
-		if self.state.contains_key(&address) {
-			self.state.get_mut(&address).unwrap()
-		} else {
-			let acct = StackAccount {
-				basic: self.backend.basic(address),
-				code: None,
-				storage: BTreeMap::new(),
-				reset_storage: false,
-			};
-			self.state.insert(address, acct);
-			self.state.get_mut(&address).unwrap()
-		}
+		self.state.entry(address).or_insert(StackAccount {
+			basic: self.backend.basic(address),
+			code: None,
+			storage: BTreeMap::new(),
+			reset_storage: false,
+		})
 	}
 
 	/// Get account nonce.
-	pub fn nonce(&mut self, address: H160) -> U256 {
-		if self.state.contains_key(&address) {
-			self.state.get_mut(&address).unwrap().basic.nonce
-		} else {
-			let acct = StackAccount {
-				basic: self.backend.basic(address),
-				code: None,
-				storage: BTreeMap::new(),
-				reset_storage: false,
-			};
-			self.state.insert(address, acct);
-			self.state.get_mut(&address).unwrap().basic.nonce
-		}
+	pub fn nonce(&self, address: H160) -> U256 {
+		self.state.get(&address).map(|v| v.basic.nonce)
+			.unwrap_or(self.backend.basic(address).nonce)
 	}
 
 	/// Withdraw balance from address.
@@ -426,7 +386,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 	}
 
 	/// Get the create address from given scheme.
-	pub fn create_address(&mut self, scheme: CreateScheme) -> H160 {
+	pub fn create_address(&self, scheme: CreateScheme) -> H160 {
 		match scheme {
 			CreateScheme::Create2 { caller, code_hash, salt } => {
 				let mut hasher = Keccak256::new();
@@ -545,11 +505,12 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			substate.account_mut(address).basic.nonce += U256::one();
 		}
 
+		let c = self.config.clone();
 		let mut runtime = Runtime::new(
 			Rc::new(init_code),
 			Rc::new(Vec::new()),
 			context,
-			self.config,
+			&c,
 		);
 
 		let reason = substate.execute(&mut runtime);
@@ -610,9 +571,6 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 		take_stipend: bool,
 		context: Context,
 	) -> Capture<(ExitReason, Vec<u8>), Infallible> {
-		if code_address == "7109709ECfa91a80626fF3989D68f67F5b1DD12D".parse().unwrap(){
-			println!("was cheat code");
-		}
 		macro_rules! try_or_fail {
 			( $e:expr ) => {
 				match $e {
@@ -678,11 +636,13 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			}
 		}
 
+		let c = self.config.clone();
+
 		let mut runtime = Runtime::new(
 			Rc::new(code),
 			Rc::new(input),
 			context,
-			self.config,
+			&c,
 		);
 
 		let reason = substate.execute(&mut runtime);
@@ -708,111 +668,138 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 	}
 }
 
-impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config, B> {
+impl<B: 'static + Backend + Clone + std::marker::Unpin> Handler for StackExecutorOwned<B> {
 	type CreateInterrupt = Infallible;
 	type CreateFeedback = Infallible;
 	type CallInterrupt = Infallible;
 	type CallFeedback = Infallible;
 
-	fn balance(&mut self, address: H160) -> U256 {
-		if self.state.contains_key(&address) {
-			self.state.get_mut(&address).unwrap().basic.balance
-		} else {
-			let acct = StackAccount {
-				basic: self.backend.basic(address),
-				code: None,
-				storage: BTreeMap::new(),
-				reset_storage: false,
-			};
-			self.state.insert(address, acct);
-			self.state.get_mut(&address).unwrap().basic.balance
+	fn balance(&mut self, address: H160, block: Option<U256>) -> U256 {
+		match block {
+			Some(bn) => {
+				self.archive_state.entry(bn).or_insert(bn);
+				{
+					StackAccount {
+						/// Basic account information, including nonce and balance.
+						basic: self.backend.basic(address),
+						/// Code. `None` means the code is currently unknown.
+						code: None,
+						/// Storage. Not inserted values mean it is currently known, but not empty.
+						storage: BTreeMap::new(),
+						/// Whether the storage in the database should be reset before storage
+						/// values are applied.
+						reset_storage: false,
+					}
+				}).basic.balance
+			}
+			_ => {
+				self.state.entry(address).or_insert({
+					StackAccount {
+						/// Basic account information, including nonce and balance.
+						basic: self.backend.basic(address),
+						/// Code. `None` means the code is currently unknown.
+						code: None,
+						/// Storage. Not inserted values mean it is currently known, but not empty.
+						storage: BTreeMap::new(),
+						/// Whether the storage in the database should be reset before storage
+						/// values are applied.
+						reset_storage: false,
+					}
+				}).basic.balance
+			}
 		}
+
+
 	}
 
 	fn code_size(&mut self, address: H160) -> U256 {
-		if self.state.contains_key(&address) {
-			let acct = self.state.get_mut(&address).unwrap();
-			if let Some(c) = acct.code.clone() {
-				U256::from(c.len())
-			} else {
-				acct.code = Some(self.backend.code(address));
-				U256::from(acct.code.clone().unwrap().len())
-			}
-		} else {
-			let acct = StackAccount {
+		let acct = self.state.entry(address).or_insert({
+			StackAccount {
+				/// Basic account information, including nonce and balance.
 				basic: self.backend.basic(address),
+				/// Code. `None` means the code is currently unknown.
 				code: Some(self.backend.code(address)),
+				/// Storage. Not inserted values mean it is currently known, but not empty.
 				storage: BTreeMap::new(),
+				/// Whether the storage in the database should be reset before storage
+				/// values are applied.
 				reset_storage: false,
-			};
-			self.state.insert(address, acct);
-			U256::from(self.state.get_mut(&address).unwrap().code.clone().unwrap().len())
+			}
+		});
+
+		if let Some(c) = acct.code.clone() {
+			U256::from(c.len())
+		} else {
+			acct.code = Some(self.backend.code(address));
+			U256::from(acct.code.clone().unwrap().len())
 		}
 	}
 
 	fn code_hash(&mut self, address: H160) -> H256 {
-		if self.state.contains_key(&address) {
-			let acct = self.state.get_mut(&address).unwrap();
-			if let Some(c) = acct.code.clone() {
-				H256::from_slice(Keccak256::digest(&c).as_slice())
-			} else {
-				acct.code = Some(self.backend.code(address));
-				H256::from_slice(Keccak256::digest(&acct.code.clone().unwrap()).as_slice())
-			}
-		} else {
-			let acct = StackAccount {
+		let acct = self.state.entry(address).or_insert({
+			StackAccount {
+				/// Basic account information, including nonce and balance.
 				basic: self.backend.basic(address),
+				/// Code. `None` means the code is currently unknown.
 				code: Some(self.backend.code(address)),
+				/// Storage. Not inserted values mean it is currently known, but not empty.
 				storage: BTreeMap::new(),
+				/// Whether the storage in the database should be reset before storage
+				/// values are applied.
 				reset_storage: false,
-			};
-			self.state.insert(address, acct.clone());
+			}
+		});
+
+		if let Some(c) = acct.code.clone() {
+			H256::from_slice(Keccak256::digest(&c).as_slice())
+		} else {
+			acct.code = Some(self.backend.code(address));
 			H256::from_slice(Keccak256::digest(&acct.code.clone().unwrap()).as_slice())
 		}
 	}
 
 	fn code(&mut self, address: H160) -> Vec<u8> {
-		if self.state.contains_key(&address) {
-			let acct = self.state.get_mut(&address).unwrap();
-			if let Some(c) = acct.code.clone() {
-				c
-			} else {
-				acct.code = Some(self.backend.code(address));
-				acct.code.clone().unwrap()
-			}
-		} else {
-			let acct = StackAccount {
+		let acct = self.state.entry(address).or_insert({
+			StackAccount {
+				/// Basic account information, including nonce and balance.
 				basic: self.backend.basic(address),
+				/// Code. `None` means the code is currently unknown.
 				code: Some(self.backend.code(address)),
+				/// Storage. Not inserted values mean it is currently known, but not empty.
 				storage: BTreeMap::new(),
+				/// Whether the storage in the database should be reset before storage
+				/// values are applied.
 				reset_storage: false,
-			};
-			self.state.insert(address, acct.clone());
+			}
+		});
+
+		if let Some(c) = acct.code.clone() {
+			c
+		} else {
+			acct.code = Some(self.backend.code(address));
 			acct.code.clone().unwrap()
 		}
 	}
 
 	fn storage(&mut self, address: H160, index: H256) -> H256 {
-		if self.state.contains_key(&address) {
-			let acct = self.state.get_mut(&address).unwrap();
-			if let Some(storage_data) = acct.storage.get(&index) {
-				storage_data.clone()
-			} else {
-				let storage_data = self.backend.storage(address, index);
-				acct.storage.insert(index, storage_data);
-				*acct = acct.clone();
-				storage_data
-			}
-		} else {
-			let mut acct = StackAccount {
+		let acct = self.state.entry(address).or_insert({
+			StackAccount {
+				/// Basic account information, including nonce and balance.
 				basic: self.backend.basic(address),
+				/// Code. `None` means the code is currently unknown.
 				code: Some(self.backend.code(address)),
+				/// Storage. Not inserted values mean it is currently known, but not empty.
 				storage: BTreeMap::new(),
+				/// Whether the storage in the database should be reset before storage
+				/// values are applied.
 				reset_storage: false,
-			};
+			}
+		});
+		if let Some(storage_data) = acct.storage.get(&index) {
+			storage_data.clone()
+		} else {
 			let storage_data = self.backend.storage(address, index);
 			acct.storage.insert(index, storage_data);
-			self.state.insert(address, acct);
 			storage_data
 		}
 	}
@@ -915,8 +902,9 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 		opcode: Result<Opcode, ExternalOpcode>,
 		stack: &Stack
 	) -> Result<(), ExitError> {
+		let c = self.config.clone();
 		let (gas_cost, memory_cost) = gasometer::opcode_cost(
-			context.address, opcode, stack, self.is_static, &self.config, self
+			context.address, opcode, stack, self.is_static, &c, self
 		)?;
 
 		self.gasometer.record_opcode(gas_cost, memory_cost)?;

@@ -2,10 +2,12 @@
 //!
 //! Backends store state information of the VM, and exposes it to runtime.
 
-mod memory;
+pub mod memory;
 mod fork_memory;
-pub use self::memory::{MemoryBackend, MemoryVicinity, MemoryAccount};
+mod fork_memory_owned;
+pub use self::memory::{MemoryBackend, MemoryVicinity, MemoryAccount, TxReceipt};
 pub use self::fork_memory::ForkMemoryBackend;
+pub use self::fork_memory_owned::ForkMemoryBackendOwned;
 
 use alloc::vec::Vec;
 use primitive_types::{H160, H256, U256};
@@ -21,6 +23,7 @@ pub struct Basic {
 
 /// Log information.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "with-serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Log {
 	/// Source address.
 	pub address: H160,
@@ -87,6 +90,8 @@ pub trait Backend {
 	fn code(&self, address: H160) -> Vec<u8>;
 	/// Get storage value of address at index.
 	fn storage(&self, address: H160, index: H256) -> H256;
+	/// Get storage value of address at index.
+	fn tx_receipt(&self, hash: H256) -> TxReceipt;
 }
 
 /// EVM backend that can apply changes.
@@ -94,8 +99,10 @@ pub trait ApplyBackend {
 	/// Apply given values and logs at backend.
 	fn apply<A, I, L>(
 		&mut self,
+		block: U256,
 		values: A,
 		logs: L,
+		recs: Vec<TxReceipt>,
 		delete_empty: bool,
 	) where
 		A: IntoIterator<Item=Apply<I>>,

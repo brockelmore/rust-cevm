@@ -198,6 +198,178 @@ impl<'config> Gasometer<'config> {
 	}
 }
 
+
+/// EVM gasometer.
+#[derive(Clone)]
+pub struct GasometerOwned {
+	gas_limit: usize,
+	config: Config,
+	inner: Result<InnerOwned, ExitError>
+}
+
+impl GasometerOwned {
+	/// Create a new gasometer with given gas limit and config.
+	pub fn new(gas_limit: usize, config: Config) -> Self {
+		Self {
+			gas_limit,
+			config: config.clone(),
+			inner: Ok(InnerOwned {
+				memory_cost: 0,
+				used_gas: 0,
+				refunded_gas: 0,
+				config: config,
+			}),
+		}
+	}
+
+	fn inner_mut(
+		&mut self
+	) -> Result<&mut InnerOwned, ExitError> {
+		self.inner.as_mut().map_err(|e| *e)
+	}
+
+	/// Reference of the config.
+	pub fn config(&self) -> Config {
+		self.config.clone()
+	}
+
+	/// Remaining gas.
+	pub fn gas(&self) -> usize {
+		match self.inner.as_ref() {
+			Ok(inner) => {
+				self.gas_limit - inner.used_gas -
+					memory::memory_gas(inner.memory_cost).expect("Checked via record")
+			},
+			Err(_) => 0,
+		}
+	}
+
+	/// Total used gas.
+	pub fn total_used_gas(&self) -> usize {
+		match self.inner.as_ref() {
+			Ok(inner) => inner.used_gas +
+				memory::memory_gas(inner.memory_cost).expect("Checked via record"),
+			Err(_) => self.gas_limit,
+		}
+	}
+
+	/// Refunded gas.
+	pub fn refunded_gas(&self) -> isize {
+		match self.inner.as_ref() {
+			Ok(inner) => inner.refunded_gas,
+			Err(_) => 0,
+		}
+	}
+
+	/// Explictly fail the gasometer with out of gas. Return `OutOfGas` error.
+	pub fn fail(&mut self) -> ExitError {
+		self.inner = Err(ExitError::OutOfGas);
+		ExitError::OutOfGas
+	}
+
+	/// Record an explict cost.
+	pub fn record_cost(
+		&mut self,
+		cost: usize
+	) -> Result<(), ExitError> {
+		let all_gas_cost = self.total_used_gas() + cost;
+		if self.gas_limit < all_gas_cost {
+			self.inner = Err(ExitError::OutOfGas);
+			return Err(ExitError::OutOfGas)
+		}
+
+		self.inner_mut()?.used_gas += cost;
+		Ok(())
+	}
+
+	/// Record an explict refund.
+	pub fn record_refund(
+		&mut self,
+		refund: isize,
+	) -> Result<(), ExitError> {
+		self.inner_mut()?.refunded_gas += refund;
+		Ok(())
+	}
+
+	/// Record `CREATE` code deposit.
+	pub fn record_deposit(
+		&mut self,
+		len: usize
+	) -> Result<(), ExitError> {
+		let cost = len * consts::G_CODEDEPOSIT;
+		self.record_cost(cost)
+	}
+
+	/// Record opcode gas cost.
+	pub fn record_opcode(
+		&mut self,
+		cost: GasCost,
+		memory: Option<MemoryCost>,
+	) -> Result<(), ExitError> {
+		let gas = self.gas();
+
+		let memory_cost = match memory {
+			Some(memory) => try_or_fail!(self.inner, self.inner_mut()?.memory_cost(memory)),
+			None => self.inner_mut()?.memory_cost,
+		};
+		let memory_gas = try_or_fail!(self.inner, memory::memory_gas(memory_cost));
+		let gas_cost = try_or_fail!(self.inner, self.inner_mut()?.gas_cost(cost.clone(), gas));
+		let gas_refund = self.inner_mut()?.gas_refund(cost.clone());
+		let used_gas = self.inner_mut()?.used_gas;
+
+		let all_gas_cost = memory_gas + used_gas + gas_cost;
+		if self.gas_limit < all_gas_cost {
+			self.inner = Err(ExitError::OutOfGas);
+			return Err(ExitError::OutOfGas)
+		}
+
+		let after_gas = self.gas_limit - all_gas_cost;
+		try_or_fail!(self.inner, self.inner_mut()?.extra_check(cost, after_gas));
+
+		self.inner_mut()?.used_gas += gas_cost;
+		self.inner_mut()?.memory_cost = memory_cost;
+		self.inner_mut()?.refunded_gas += gas_refund;
+
+		Ok(())
+	}
+
+	/// Record opcode stipend.
+	pub fn record_stipend(
+		&mut self,
+		stipend: usize,
+	) -> Result<(), ExitError> {
+		self.inner_mut()?.used_gas -= stipend;
+		Ok(())
+	}
+
+	/// Record transaction cost.
+	pub fn record_transaction(
+		&mut self,
+		cost: TransactionCost,
+	) -> Result<(), ExitError> {
+		let gas_cost = match cost {
+			TransactionCost::Call { zero_data_len, non_zero_data_len } => {
+				self.config.gas_transaction_call +
+					zero_data_len * self.config.gas_transaction_zero_data +
+					non_zero_data_len * self.config.gas_transaction_non_zero_data
+			},
+			TransactionCost::Create { zero_data_len, non_zero_data_len } => {
+				self.config.gas_transaction_create +
+					zero_data_len * self.config.gas_transaction_zero_data +
+					non_zero_data_len * self.config.gas_transaction_non_zero_data
+			},
+		};
+
+		if self.gas() < gas_cost {
+			self.inner = Err(ExitError::OutOfGas);
+			return Err(ExitError::OutOfGas);
+		}
+
+		self.inner_mut()?.used_gas += gas_cost;
+		Ok(())
+	}
+}
+
 /// Calculate the call transaction cost.
 pub fn call_transaction_cost(
 	data: &[u8]
@@ -507,6 +679,116 @@ impl<'config> Inner<'config> {
 		match cost {
 			GasCost::SStore { original, current, new } =>
 				costs::sstore_refund(original, current, new, self.config),
+			GasCost::Suicide { already_removed, .. } =>
+				costs::suicide_refund(already_removed),
+			_ => 0,
+		}
+	}
+}
+
+
+#[derive(Clone)]
+struct InnerOwned {
+	memory_cost: usize,
+	used_gas: usize,
+	refunded_gas: isize,
+	config: Config,
+}
+
+impl InnerOwned {
+	fn memory_cost(
+		&self,
+		memory: MemoryCost,
+	) -> Result<usize, ExitError> {
+		let from = memory.offset;
+		let len = memory.len;
+
+		if len == U256::zero() {
+			return Ok(self.memory_cost)
+		}
+
+		let end = from.checked_add(len).ok_or(ExitError::OutOfGas)?;
+
+		if end > U256::from(usize::max_value()) {
+			return Err(ExitError::OutOfGas)
+		}
+		let end = end.as_usize();
+
+		let rem = end % 32;
+		let new = if rem == 0 {
+			end / 32
+		} else {
+			end / 32 + 1
+		};
+
+		Ok(max(self.memory_cost, new))
+	}
+
+	fn extra_check(
+		&self,
+		cost: GasCost,
+		after_gas: usize,
+	) -> Result<(), ExitError> {
+		match cost {
+			GasCost::Call { gas, .. } => costs::call_extra_check(gas, after_gas, &self.config),
+			GasCost::CallCode { gas, .. } => costs::call_extra_check(gas, after_gas, &self.config),
+			GasCost::DelegateCall { gas, .. } => costs::call_extra_check(gas, after_gas, &self.config),
+			GasCost::StaticCall { gas, .. } => costs::call_extra_check(gas, after_gas, &self.config),
+			_ => Ok(()),
+		}
+	}
+
+	fn gas_cost(
+		&self,
+		cost: GasCost,
+		gas: usize,
+	) -> Result<usize, ExitError> {
+		Ok(match cost {
+			GasCost::Call { value, target_exists, .. } =>
+				costs::call_cost(value, true, true, !target_exists, &self.config),
+			GasCost::CallCode { value, target_exists, .. } =>
+				costs::call_cost(value, true, false, !target_exists, &self.config),
+			GasCost::DelegateCall { target_exists, .. } =>
+				costs::call_cost(U256::zero(), false, false, !target_exists, &self.config),
+			GasCost::StaticCall { target_exists, .. } =>
+				costs::call_cost(U256::zero(), false, true, !target_exists, &self.config),
+			GasCost::Suicide { value, target_exists, .. } =>
+				costs::suicide_cost(value, target_exists, &self.config),
+			GasCost::SStore { original, current, new } =>
+				costs::sstore_cost(original, current, new, gas, &self.config)?,
+
+			GasCost::Sha3 { len } => costs::sha3_cost(len)?,
+			GasCost::Log { n, len } => costs::log_cost(n, len)?,
+			GasCost::ExtCodeCopy { len } => costs::extcodecopy_cost(len, &self.config)?,
+			GasCost::VeryLowCopy { len } => costs::verylowcopy_cost(len)?,
+			GasCost::Exp { power } => costs::exp_cost(power, &self.config)?,
+			GasCost::Create => consts::G_CREATE,
+			GasCost::Create2 { len } => costs::create2_cost(len)?,
+			GasCost::JumpDest => consts::G_JUMPDEST,
+			GasCost::SLoad => self.config.gas_sload,
+
+			GasCost::Zero => consts::G_ZERO,
+			GasCost::Base => consts::G_BASE,
+			GasCost::VeryLow => consts::G_VERYLOW,
+			GasCost::Low => consts::G_LOW,
+			GasCost::Mid => consts::G_MID,
+			GasCost::High => consts::G_HIGH,
+			GasCost::Invalid => return Err(ExitError::OutOfGas),
+
+			GasCost::ExtCodeSize => self.config.gas_ext_code,
+			GasCost::Balance => self.config.gas_balance,
+			GasCost::BlockHash => consts::G_BLOCKHASH,
+			GasCost::ExtCodeHash => self.config.gas_ext_code_hash,
+		})
+	}
+
+	fn gas_refund(
+		&self,
+		cost: GasCost
+	) -> isize {
+		match cost {
+			GasCost::SStore { original, current, new } =>
+				costs::sstore_refund(original, current, new, &self.config),
 			GasCost::Suicide { already_removed, .. } =>
 				costs::suicide_refund(already_removed),
 			_ => 0,
