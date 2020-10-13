@@ -77,9 +77,11 @@ macro_rules! step {
 ///
 /// The runtime wraps an EVM `Machine` with support of return data and context.
 pub struct Runtime<'config> {
-	machine: Machine,
+	/// stack machine
+	pub machine: Machine,
 	status: Result<(), ExitReason>,
-	return_data_buffer: Vec<u8>,
+	/// return data buffer
+	pub return_data_buffer: Vec<u8>,
 	context: Context,
 	_config: &'config Config,
 }

@@ -66,7 +66,7 @@ pub async fn response_router(
     match (req.method(), req.uri().path()) {
         (&Method::POST, "/") => evm_process(req, evm, me).await,
         _ => {
-            println!("not found");
+            println!("not found, {:?}", req);
             // Return 404 not found response.
             Ok(Response::builder()
                 .status(StatusCode::NOT_FOUND)
@@ -200,5 +200,8 @@ pub async fn evm_process(
             return Ok(Response::new(Body::from("Not found")));
         }
     }
-    Ok(Response::new(Body::from(serde_json::to_string(&res)?)))
+    let res = Response::builder()
+        .body(Body::from(serde_json::to_string(&res)?))
+        .unwrap();
+    Ok(res)
 }

@@ -9,6 +9,7 @@ use crate::{ExitError, Stack, ExternalOpcode, Opcode, Capture, Handler, Transfer
 			Context, CreateScheme, Runtime, ExitReason, ExitSucceed, Config};
 use crate::backend::{Log, Basic, Apply, Backend, memory::TxReceipt};
 use crate::gasometer::{self, Gasometer};
+use hex;
 
 /// Account definition for the stack-based executor.
 #[derive(Default, Clone, Debug, Eq, PartialEq)]
@@ -22,6 +23,9 @@ pub struct StackAccount {
 	/// Whether the storage in the database should be reset before storage
 	/// values are applied.
 	pub reset_storage: bool,
+	/// Whether the storage in the database should be reset before storage
+	/// values are applied.
+	pub reset_storage_backend: bool,
 }
 
 /// Stack-based executor.
@@ -46,7 +50,11 @@ pub struct StackExecutor<'backend, 'config, B> {
 	/// Recursion depth
 	pub depth: Option<usize>,
 	/// Txs that are pending
-	pub pending_txs: Vec<TxReceipt>
+	pub pending_txs: Vec<TxReceipt>,
+	/// Txs that are pending
+	pub tmp_bn: Option<U256>,
+	/// Txs that are pending
+	pub tmp_timestamp: Option<U256>,
 }
 
 fn no_precompile(
@@ -84,7 +92,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			precompile: precompile,
 			is_static: false,
 			depth: None,
-			pending_txs: Vec::new()
+			pending_txs: Vec::new(),
+			tmp_bn: None,
+			tmp_timestamp: None,
 		}
 	}
 
@@ -103,7 +113,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 				None => Some(0),
 				Some(n) => Some(n + 1),
 			},
-			pending_txs: Vec::new()
+			pending_txs: Vec::new(),
+			tmp_bn: self.tmp_bn,
+			tmp_timestamp: self.tmp_timestamp,
 		}
 	}
 
@@ -209,6 +221,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			status,
 		});
 
+		self.tmp_bn = None;
+		self.tmp_timestamp = None;
+
 		match exit {
 			Capture::Exit((s, a, _)) => (s, a),
 			Capture::Trap(_) => unreachable!(),
@@ -310,6 +325,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			status,
 		});
 
+		self.tmp_bn = None;
+		self.tmp_timestamp = None;
+
 		match exit {
 			Capture::Exit((s, v)) => (s, v),
 			Capture::Trap(_) => unreachable!(),
@@ -348,12 +366,20 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			if self.deleted.contains(&address) {
 				continue
 			}
+			let mut storage = BTreeMap::new();
+			if account.reset_storage_backend {
+				for (slot, _val) in account.storage.iter() {
+					storage.insert(slot.clone(), self.backend.storage(address, slot.clone()));
+				}
+			} else {
+				storage = account.storage.clone();
+			}
 
 			applies.push(Apply::Modify {
 				address,
 				basic: account.basic,
 				code: account.code,
-				storage: account.storage,
+				storage: storage,
 				reset_storage: account.reset_storage,
 			});
 		}
@@ -378,6 +404,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 				code: None,
 				storage: BTreeMap::new(),
 				reset_storage: false,
+				reset_storage_backend: false,
 			};
 			self.state.insert(address, acct);
 			self.state.get_mut(&address).unwrap()
@@ -394,6 +421,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 				code: None,
 				storage: BTreeMap::new(),
 				reset_storage: false,
+				reset_storage_backend: false,
 			};
 			self.state.insert(address, acct);
 			self.state.get_mut(&address).unwrap().basic.nonce
@@ -560,7 +588,6 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 
 				if let Some(limit) = self.config.create_contract_limit {
 					if out.len() > limit {
-						println!("error 0");
 						substate.gasometer.fail();
 						let _ = self.merge_fail(substate);
 						return Capture::Exit((ExitError::CreateContractLimit.into(), None, Vec::new()))
@@ -582,7 +609,6 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 				}
 			},
 			ExitReason::Error(e) => {
-				println!("error, {:?}", e);
 				substate.gasometer.fail();
 				let _ = self.merge_fail(substate);
 				Capture::Exit((ExitReason::Error(e), None, Vec::new()))
@@ -592,7 +618,6 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 				Capture::Exit((ExitReason::Revert(e), None, runtime.machine().return_value()))
 			},
 			ExitReason::Fatal(e) => {
-				println!("fatal error, {:?}", e);
 				self.gasometer.fail();
 				Capture::Exit((ExitReason::Fatal(e), None, Vec::new()))
 			},
@@ -610,9 +635,54 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 		take_stipend: bool,
 		context: Context,
 	) -> Capture<(ExitReason, Vec<u8>), Infallible> {
+		let mut forced_ret = H256::zero();
+		let mut is_forced_ret = false;
 		if code_address == "7109709ECfa91a80626fF3989D68f67F5b1DD12D".parse().unwrap(){
-			println!("was cheat code");
+			let sig = hex::encode([input[0], input[1], input[2], input[3]]);
+			match sig {
+				// roll
+				_ if sig == "1f7b4f30".to_string() => {
+					let amount = U256::from_big_endian(&input[4..]);
+					self.tmp_bn = Some(amount);
+				},
+				// warp
+				_ if sig == "e5d6bf02".to_string() => {
+					let timestamp = U256::from_big_endian(&input[4..]);
+					self.tmp_timestamp = Some(timestamp);
+				},
+				// store
+				_ if sig == "70ca10bb".to_string() => {
+					let who = H160::from_slice(&input[16..36]);
+					let slot = H256::from_slice(&input[36..68]);
+					let val = H256::from_slice(&input[68..]);
+					if self.state.contains_key(&who) {
+						let acct = self.state.get_mut(&who).unwrap();
+						acct.storage.insert(slot, val);
+						acct.reset_storage_backend = true;
+						*acct = acct.clone();
+					} else {
+						let mut acct = StackAccount {
+							basic: self.backend.basic(who),
+							code: Some(self.backend.code(who)),
+							storage: BTreeMap::new(),
+							reset_storage: false,
+							reset_storage_backend: true,
+						};
+						acct.storage.insert(slot, val);
+						self.state.insert(who, acct);
+					}
+				},
+				// load
+				_ if sig == "667f9d70".to_string() => {
+					let who = H160::from_slice(&input[16..36]);
+					let slot = H256::from_slice(&input[36..68]);
+					forced_ret = self.storage(who, slot);
+					is_forced_ret = true;
+				},
+				_ => {}
+			}
 		}
+
 		macro_rules! try_or_fail {
 			( $e:expr ) => {
 				match $e {
@@ -685,6 +755,15 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			self.config,
 		);
 
+		if code_address == "7109709ECfa91a80626fF3989D68f67F5b1DD12D".parse().unwrap() && is_forced_ret {
+			runtime.machine.return_range = U256::zero()..U256::from(32);
+			runtime.machine.memory.set(
+				0,
+				forced_ret.as_bytes(),
+				None
+			).unwrap();
+		}
+
 		let reason = substate.execute(&mut runtime);
 
 		match reason {
@@ -723,6 +802,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 				code: None,
 				storage: BTreeMap::new(),
 				reset_storage: false,
+				reset_storage_backend: false,
 			};
 			self.state.insert(address, acct);
 			self.state.get_mut(&address).unwrap().basic.balance
@@ -730,6 +810,9 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 	}
 
 	fn code_size(&mut self, address: H160) -> U256 {
+		if address == "7109709ECfa91a80626fF3989D68f67F5b1DD12D".parse().unwrap(){
+			return U256::from(100);
+		}
 		if self.state.contains_key(&address) {
 			let acct = self.state.get_mut(&address).unwrap();
 			if let Some(c) = acct.code.clone() {
@@ -744,6 +827,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 				code: Some(self.backend.code(address)),
 				storage: BTreeMap::new(),
 				reset_storage: false,
+				reset_storage_backend: false,
 			};
 			self.state.insert(address, acct);
 			U256::from(self.state.get_mut(&address).unwrap().code.clone().unwrap().len())
@@ -765,6 +849,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 				code: Some(self.backend.code(address)),
 				storage: BTreeMap::new(),
 				reset_storage: false,
+				reset_storage_backend: false,
 			};
 			self.state.insert(address, acct.clone());
 			H256::from_slice(Keccak256::digest(&acct.code.clone().unwrap()).as_slice())
@@ -786,6 +871,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 				code: Some(self.backend.code(address)),
 				storage: BTreeMap::new(),
 				reset_storage: false,
+				reset_storage_backend: false,
 			};
 			self.state.insert(address, acct.clone());
 			acct.code.clone().unwrap()
@@ -809,6 +895,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 				code: Some(self.backend.code(address)),
 				storage: BTreeMap::new(),
 				reset_storage: false,
+				reset_storage_backend: false,
 			};
 			let storage_data = self.backend.storage(address, index);
 			acct.storage.insert(index, storage_data);
@@ -848,9 +935,21 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 	fn gas_price(&self) -> U256 { self.backend.gas_price() }
 	fn origin(&self) -> H160 { self.backend.origin() }
 	fn block_hash(&self, number: U256) -> H256 { self.backend.block_hash(number) }
-	fn block_number(&self) -> U256 { self.backend.block_number() }
+	fn block_number(&self) -> U256 {
+		if let Some(tmpbn) = self.tmp_bn {
+			tmpbn
+		} else {
+			self.backend.block_number()
+		}
+	}
 	fn block_coinbase(&self) -> H160 { self.backend.block_coinbase() }
-	fn block_timestamp(&self) -> U256 { self.backend.block_timestamp() }
+	fn block_timestamp(&self) -> U256 {
+		if let Some(tmptm) = self.tmp_timestamp {
+			tmptm
+		} else {
+			self.backend.block_timestamp()
+		}
+	}
 	fn block_difficulty(&self) -> U256 { self.backend.block_difficulty() }
 	fn block_gas_limit(&self) -> U256 { self.backend.block_gas_limit() }
 	fn chain_id(&self) -> U256 { self.backend.chain_id() }
@@ -918,7 +1017,6 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 		let (gas_cost, memory_cost) = gasometer::opcode_cost(
 			context.address, opcode, stack, self.is_static, &self.config, self
 		)?;
-
 		self.gasometer.record_opcode(gas_cost, memory_cost)?;
 
 		Ok(())

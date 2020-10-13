@@ -37,13 +37,13 @@ pub struct Machine {
 	/// Program counter.
 	position: Result<usize, ExitReason>,
 	/// Return value.
-	return_range: Range<U256>,
+	pub return_range: Range<U256>,
 	/// Code validity maps.
 	valids: Valids,
 	/// Memory.
-	memory: Memory,
+	pub memory: Memory,
 	/// Stack.
-	stack: Stack,
+	pub stack: Stack,
 }
 
 impl Machine {

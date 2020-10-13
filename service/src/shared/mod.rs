@@ -88,6 +88,7 @@ pub enum EthRequest {
     eth_getBlockByNumber(U256,bool),
     eth_getTransactionByHash(H256),
     eth_getTransactionReceipt(H256),
+    eth_sendTransactionWithReturn(TransactionRequest),
 }
 
 #[derive(MessageResponse, Serialize, Deserialize)]
@@ -105,6 +106,7 @@ pub enum EthResponse {
     eth_getBlockByNumber(Block),
     eth_getTransactionByHash(TxReceipt),
     eth_getTransactionReceipt(TxReceipt),
+    eth_sendTransactionWithReturn(H256, Vec<u8>),
     eth_unimplemented
 }
 

@@ -156,7 +156,14 @@ impl ApplyBackend for ForkMemoryBackendOwned {
 					let is_empty = {
 
 						if tip {
-							let account = self.state.entry(address).or_insert(Default::default());
+							let mut account;
+							if self.state.contains_key(&address) {
+								account = self.state.get_mut(&address).unwrap();
+							} else {
+								let acct = MemoryAccount::default();
+								self.state.insert(address, acct);
+								account = self.state.get_mut(&address).unwrap();
+							}
 							account.balance = basic.balance;
 							account.nonce = basic.nonce;
 							if let Some(code) = code {
@@ -183,6 +190,8 @@ impl ApplyBackend for ForkMemoryBackendOwned {
 									account.storage.insert(index, value);
 								}
 							}
+
+							*account = account.clone();
 
 							account.balance == U256::zero() &&
 								account.nonce == U256::zero() &&

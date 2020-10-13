@@ -19,6 +19,9 @@ interface IUniswapV2Factory {
 
 interface Hevm {
   function roll(uint256) external;
+  function warp(uint256) external;
+  function store(address, bytes32, bytes32) external;
+  function load(address, bytes32) external returns (bytes32);
 }
 
 contract Sample {
@@ -33,6 +36,25 @@ contract Sample {
 
   function test() public returns (uint256) {
       hevm.roll(10);
+      return block.number;
+  }
+  function test1() public returns (uint256) {
+      hevm.warp(10);
+      return block.timestamp;
+  }
+
+  function test2(uint256 slot) public returns (address) {
+      hevm.store(UNI_FACT, bytes32(slot), bytes32(uint256(100000)));
+      return IUniswapV2Factory(UNI_FACT).feeToSetter();
+  }
+
+  function test3() public returns (address) {
+      return IUniswapV2Factory(UNI_FACT).feeToSetter();
+  }
+
+  function test4() public returns (bytes32) {
+      bytes32 loaded = hevm.load(UNI_FACT, bytes32(uint256(1)));
+      return loaded;
   }
 
   function getUniPair() public returns (address) {

@@ -167,7 +167,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                 let selftx = selftx.compute_hash();
                 let hash = selftx.hash;
                 if tx.to != None {
-                    exec.transact_call(
+                    let (_r, d) = exec.transact_call(
                         hash,
                         tx.from,
                         tx.to.unwrap(),
@@ -175,10 +175,11 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                         selftx.unsigned.data,
                         tx.gas.unwrap().as_usize()
                     );
+                    println!("tx: {:?}, {:?}", _r, d);
                 } else {
                     exec.transact_create(
                         hash,
-                		tx.from, // address of vitalik.eth
+                		tx.from,
                 		tx.value.unwrap_or(U256::zero()), // value: 0 eth
                 		selftx.unsigned.data, // data
                 		tx.gas.unwrap().as_usize(), // gas_limit
@@ -194,7 +195,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                     crate::shared::Action::Create => {
                         exec.transact_create(
                             hash,
-                    		sender, // address of vitalik.eth
+                    		sender,
                     		tx.value, // value: 0 eth
                     		bytes, // data
                     		tx.gas.as_usize(), // gas_limit
@@ -247,12 +248,11 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                         selftx.unsigned.data,
                         tx.gas.unwrap().as_usize()
                     );
-                    println!("call: {:?}, {:?}", _r, d);
                     data = d;
                 } else {
                     let (_r, d) = exec.transact_create(
                         hash,
-                        tx.from, // address of vitalik.eth
+                        tx.from,
                         tx.value.unwrap_or(U256::zero()), // value: 0 eth
                         selftx.unsigned.data, // data
                         tx.gas.unwrap().as_usize(), // gas_limit
@@ -275,6 +275,53 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
             // }
             EthRequest::eth_getTransactionReceipt(hash) => {
                 EthResponse::eth_getTransactionReceipt(self.backend.tx_receipt(hash))
+            }
+            EthRequest::eth_sendTransactionWithReturn(tx) => {
+                let action;
+                if tx.to != None {
+                    action = crate::shared::Action::Call(tx.to.unwrap());
+                } else {
+                    action = crate::shared::Action::Create;
+                }
+                let Bytes(raw) = tx.data.unwrap();
+                let selftx = UnverifiedTransaction {
+                    unsigned: SelfTransaction {
+                        nonce: tx.nonce.unwrap_or(exec.nonce(tx.from)),
+                        gas_price: tx.gas_price.unwrap(),
+                        gas: tx.gas.unwrap(),
+                        action,
+                        value: tx.value.unwrap(),
+                        data: raw,
+                    },
+                    v: 0,
+                    r: U256::one(),
+                    s: U256::one(),
+                    hash: H256::zero()
+                };
+                let selftx = selftx.compute_hash();
+                let hash = selftx.hash;
+                let data;
+                if tx.to != None {
+                    let (_r, d) = exec.transact_call(
+                        hash,
+                        tx.from,
+                        tx.to.unwrap(),
+                        tx.value.unwrap_or(U256::zero()),
+                        selftx.unsigned.data,
+                        tx.gas.unwrap().as_usize()
+                    );
+                    data = d;
+                } else {
+                    let (_r, d) = exec.transact_create(
+                        hash,
+                		tx.from,
+                		tx.value.unwrap_or(U256::zero()), // value: 0 eth
+                		selftx.unsigned.data, // data
+                		tx.gas.unwrap().as_usize(), // gas_limit
+                	);
+                    data = d.unwrap().as_bytes().to_vec();
+                }
+                EthResponse::eth_sendTransactionWithReturn(hash, data)
             }
             _ => {println!("!implemented"); EthResponse::eth_unimplemented}
         };

@@ -146,6 +146,7 @@ impl<'vicinity> ApplyBackend for ForkMemoryBackend<'vicinity> {
 		if block == self.local_block_num {
 			tip = true;
 		}
+		println!("tip: {:?}, {:?}", block, self.local_block_num);
 		for apply in values {
 			match apply {
 				Apply::Modify {
@@ -160,7 +161,7 @@ impl<'vicinity> ApplyBackend for ForkMemoryBackend<'vicinity> {
 							if let Some(code) = code {
 								account.code = code;
 							}
-
+							println!("reset {:?} {:?}", address, reset_storage);
 							if reset_storage {
 								account.storage = BTreeMap::new();
 							}
