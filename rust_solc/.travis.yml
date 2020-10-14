@@ -1,0 +1,43 @@
+branches:
+  only:
+  - master
+
+# need sudo and trusty to use `snap`
+sudo: required
+dist: trusty
+language: rust
+cache: cargo
+
+matrix:
+  include:
+    # `solc` test (`solcjs` test is the next item in this list)
+    - rust: stable
+      install:
+        - sudo apt-get --yes install snapd
+        - sudo snap install solc --stable
+        - snap list
+      before_script:
+        - export PATH=/snap/bin:${PATH}
+        - rustup component add rustfmt-preview
+      script:
+        - cargo fmt --all -- --check
+        - cd example
+        - cargo build
+      # after success build rust documentation and push it to gh-pages branch
+      after_success: |
+        cargo doc --no-deps && \
+        sudo pip install ghp-import && \
+        ghp-import -n target/doc && \
+        git push -qf https://${GITHUB_TOKEN}@github.com/${TRAVIS_REPO_SLUG}.git gh-pages
+    # `solcjs` test
+    - rust: stable
+      install:
+        - sudo apt-get --yes install snapd
+        - sudo snap install node --classic --channel=9/stable
+        - snap list
+        - npm install -g solc
+      before_script:
+        - export PATH=/snap/bin:${PATH}
+      script:
+        - cd example
+        - cargo build

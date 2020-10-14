@@ -1,0 +1,5 @@
+target
+.DS_Store
+Cargo.lock
+example/contracts/*.abi
+example/contracts/*.bin

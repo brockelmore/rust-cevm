@@ -7,6 +7,10 @@ use thiserror::Error;
 use std::fmt;
 use serde_json::Value;
 use crate::backend::memory::TxReceipt;
+use std::{thread, time};
+
+/// Delay between calls
+pub static DELAY: u64 = 50;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Error)]
 /// A JSON-RPC 2.0 error
@@ -115,6 +119,8 @@ pub struct Provider {
     pub client: Client,
     /// The provider url
     pub url: Url,
+    /// last call
+    pub last_call: u128
 }
 
 impl Provider {
@@ -122,12 +128,18 @@ impl Provider {
     pub fn new(src: String) -> Self {
         Self {
             client: Client::new(),
-            url: Url::parse(&src).unwrap()
+            url: Url::parse(&src).unwrap(),
+            last_call: 0
         }
+    }
+
+    fn check_delay(&self) {
+        thread::sleep(time::Duration::from_millis(DELAY));
     }
 
     /// Get storage for a particular index at an address
     pub fn get_block_number(&self) -> U256 {
+        self.check_delay();
         println!("eth_blockNumber");
         let request = build_request(
             0,
@@ -141,6 +153,7 @@ impl Provider {
 
     /// Get storage for a particular index at an address
     pub fn get_block(&self) -> Block<H256> {
+        self.check_delay();
         println!("eth_getBlockByNumber");
         let index = serialize(&"latest".to_string());
         let txs = serialize(&false);
@@ -156,6 +169,7 @@ impl Provider {
 
     /// Get storage for a particular index at an address
     pub fn get_storage_at(&self, address: H160, index: H256, block: Option<U256>) -> H256 {
+        self.check_delay();
         println!("eth_getStorageAt, {:?}, {:?}", address, index);
         let address = serialize(&address);
         let index = serialize(&index);
@@ -181,7 +195,11 @@ impl Provider {
 
     /// Gets the bytecode for an address
     pub fn get_code(&self, address: H160, block: Option<U256>) -> Bytes {
-        println!("eth_getCode");
+        if address == "7109709ecfa91a80626ff3989d68f67f5b1dd12d".parse().unwrap() {
+            return Bytes::new()
+        }
+        self.check_delay();
+        println!("eth_getCode, {:?}", address);
         let address = serialize(&address);
         let b;
         match block {
@@ -205,6 +223,7 @@ impl Provider {
 
     /// Gets the balance of an address
     pub fn get_balance(&self, address: H160, block: Option<U256>) -> U256 {
+        self.check_delay();
         println!("eth_getBalance");
         let address = serialize(&address);
         let b;
@@ -229,6 +248,7 @@ impl Provider {
 
     /// Gets the tx count for an address
     pub fn get_transaction_count(&self, address: H160, block: Option<U256>) -> U256 {
+        self.check_delay();
         println!("eth_getTransactionCount");
         let address = serialize(&address);
         let b;
@@ -253,6 +273,7 @@ impl Provider {
 
     /// Gets the tx count for an address
     pub fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
+        self.check_delay();
         println!("eth_getTransactionReceipt");
         let h = serialize(&hash);
 

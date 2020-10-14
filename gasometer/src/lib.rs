@@ -217,7 +217,7 @@ impl GasometerOwned {
 				memory_cost: 0,
 				used_gas: 0,
 				refunded_gas: 0,
-				config: config,
+				config,
 			}),
 		}
 	}

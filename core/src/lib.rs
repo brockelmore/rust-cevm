@@ -129,6 +129,7 @@ impl Machine {
 
 		match self.code.get(position).map(|v| Opcode::parse(*v)) {
 			Some(Ok(opcode)) => {
+				// println!("opcode: {:?}", opcode);
 				match eval(self, opcode, position) {
 					Control::Continue(p) => {
 						self.position = Ok(position + p);

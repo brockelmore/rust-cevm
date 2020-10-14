@@ -3,6 +3,7 @@ use alloc::collections::BTreeMap;
 use primitive_types::{H160, H256, U256};
 use sha3::{Digest, Keccak256};
 use super::{Basic, Backend, ApplyBackend, Apply, Log, MemoryVicinity, MemoryAccount, TxReceipt};
+use std::collections::BTreeSet;
 // #[cfg(feature = "web")]
 // use crate::provider::webprovider::Provider;
 
@@ -115,7 +116,11 @@ impl Backend for ForkMemoryBackendOwned {
 			if let Some(store_data) = acct.storage.get(&index) {
 				store_data.clone()
 			} else {
-				self.provider.get_storage_at(address, index, Some(self.vicinity.block_number))
+				if !acct.created {
+					self.provider.get_storage_at(address, index, Some(self.vicinity.block_number))
+				} else {
+					H256::default()
+				}
 			}
 		} else {
 			self.provider.get_storage_at(address, index, Some(self.vicinity.block_number))
@@ -138,6 +143,7 @@ impl ApplyBackend for ForkMemoryBackendOwned {
 		values: A,
 		logs: L,
 		recs: Vec<TxReceipt>,
+		created_contracts: BTreeSet<H160>,
 		delete_empty: bool,
 	) where
 		A: IntoIterator<Item=Apply<I>>,
@@ -164,6 +170,11 @@ impl ApplyBackend for ForkMemoryBackendOwned {
 								self.state.insert(address, acct);
 								account = self.state.get_mut(&address).unwrap();
 							}
+
+							if created_contracts.contains(&address) {
+								account.created = true;
+							}
+
 							account.balance = basic.balance;
 							account.nonce = basic.nonce;
 							if let Some(code) = code {

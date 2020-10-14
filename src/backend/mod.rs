@@ -3,14 +3,15 @@
 //! Backends store state information of the VM, and exposes it to runtime.
 
 pub mod memory;
-mod fork_memory;
+// mod fork_memory;
 mod fork_memory_owned;
 pub use self::memory::{MemoryBackend, MemoryVicinity, MemoryAccount, TxReceipt};
-pub use self::fork_memory::ForkMemoryBackend;
+// pub use self::fork_memory::ForkMemoryBackend;
 pub use self::fork_memory_owned::ForkMemoryBackendOwned;
 
 use alloc::vec::Vec;
 use primitive_types::{H160, H256, U256};
+use std::collections::BTreeSet;
 
 /// Basic account information.
 #[derive(Clone, Eq, PartialEq, Debug, Default)]
@@ -103,6 +104,7 @@ pub trait ApplyBackend {
 		values: A,
 		logs: L,
 		recs: Vec<TxReceipt>,
+		created_contracts: BTreeSet<H160>,
 		delete_empty: bool,
 	) where
 		A: IntoIterator<Item=Apply<I>>,

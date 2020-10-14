@@ -1,12 +1,12 @@
 #![allow(unused_must_use)]
 use actix::prelude::*;
 use crate::shared::*;
-use std::collections::{BTreeSet, BTreeMap};
+
 
 use bytes::buf::BufExt;
-use hyper::client::HttpConnector;
+
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, Method, Request, Response, Server, StatusCode};
+use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use web3::types::*;
 
 pub struct Api {
@@ -79,7 +79,7 @@ pub async fn response_router(
 pub async fn evm_process(
     req: Request<Body>,
     evm: Recipient<EthRequest>,
-    me: Addr<Api>,
+    _me: Addr<Api>,
 ) -> Result<Response<Body>> {
     let whole_body = hyper::body::aggregate(req).await?;
     let data: serde_json::Value = serde_json::from_reader(whole_body.reader())?;
@@ -152,9 +152,18 @@ pub async fn evm_process(
             res = result.unwrap_or(EthResponse::eth_unimplemented);
         }
         "eth_sendTransaction" => {
-            println!("{:#x?}", data["params"][0]);
+            println!("{:#x?}", data["params"]);
             let tx: TransactionRequest = serde_json::from_value(data["params"][0].clone()).unwrap();
-            let result = evm.send(EthRequest::eth_sendTransaction(tx)).await;
+            let opts;
+            match serde_json::from_value::<Vec<String>>(data["params"][1].clone()) {
+                Ok(options) => {
+                    opts = Some(options);
+                }
+                _ => {
+                    opts = None;
+                }
+            }
+            let result = evm.send(EthRequest::eth_sendTransaction(tx, opts)).await;
             res = result.unwrap_or(EthResponse::eth_unimplemented);
         }
         "eth_sendRawTransaction" => {

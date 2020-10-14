@@ -6,6 +6,7 @@ use sha3::{Digest, Keccak256};
 use super::{Basic, Backend, ApplyBackend, Apply, Log, MemoryVicinity, MemoryAccount, TxReceipt};
 // #[cfg(feature = "web")]
 // use crate::provider::webprovider::Provider;
+use std::collections::BTreeSet;
 
 #[cfg(feature = "local")]
 use crate::provider::localprovider::Provider;
@@ -136,6 +137,7 @@ impl<'vicinity> ApplyBackend for ForkMemoryBackend<'vicinity> {
 		values: A,
 		logs: L,
 		recs: Vec<TxReceipt>,
+		created_contracts: BTreeSet<H160>,
 		delete_empty: bool,
 	) where
 		A: IntoIterator<Item=Apply<I>>,
@@ -161,7 +163,11 @@ impl<'vicinity> ApplyBackend for ForkMemoryBackend<'vicinity> {
 							if let Some(code) = code {
 								account.code = code;
 							}
-							println!("reset {:?} {:?}", address, reset_storage);
+							
+							if created_contracts.contains(&address) {
+								account.created = true;
+							}
+
 							if reset_storage {
 								account.storage = BTreeMap::new();
 							}

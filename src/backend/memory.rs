@@ -7,6 +7,7 @@ use alloc::collections::BTreeMap;
 use primitive_types::{H160, H256, U256};
 use sha3::{Digest, Keccak256};
 use super::{Basic, Backend, ApplyBackend, Apply, Log};
+use std::collections::BTreeSet;
 
 /// Transaction receipt
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
@@ -68,6 +69,8 @@ pub struct MemoryAccount {
 	pub storage: BTreeMap<H256, H256>,
 	/// Account code.
 	pub code: Vec<u8>,
+	/// Flag if self created
+	pub created: bool,
 }
 
 /// Memory backend, storing all state values in a `BTreeMap` in memory.
@@ -167,6 +170,7 @@ impl<'vicinity> ApplyBackend for MemoryBackend<'vicinity> {
 		values: A,
 		logs: L,
 		recs: Vec<TxReceipt>,
+		created_contracts: BTreeSet<H160>,
 		delete_empty: bool,
 	) where
 		A: IntoIterator<Item=Apply<I>>,
@@ -190,6 +194,10 @@ impl<'vicinity> ApplyBackend for MemoryBackend<'vicinity> {
 							account.nonce = basic.nonce;
 							if let Some(code) = code {
 								account.code = code;
+							}
+
+							if created_contracts.contains(&address) {
+								account.created = true;
 							}
 
 							if reset_storage {

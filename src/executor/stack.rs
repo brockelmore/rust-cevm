@@ -10,6 +10,7 @@ use crate::{ExitError, Stack, ExternalOpcode, Opcode, Capture, Handler, Transfer
 use crate::backend::{Log, Basic, Apply, Backend, memory::TxReceipt};
 use crate::gasometer::{self, Gasometer};
 use hex;
+use std::time::Instant;
 
 /// Account definition for the stack-based executor.
 #[derive(Default, Clone, Debug, Eq, PartialEq)]
@@ -55,6 +56,8 @@ pub struct StackExecutor<'backend, 'config, B> {
 	pub tmp_bn: Option<U256>,
 	/// Txs that are pending
 	pub tmp_timestamp: Option<U256>,
+	/// created contracts
+	pub created_contracts: BTreeSet<H160>,
 }
 
 fn no_precompile(
@@ -95,18 +98,20 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			pending_txs: Vec::new(),
 			tmp_bn: None,
 			tmp_timestamp: None,
+			created_contracts: BTreeSet::new(),
 		}
 	}
 
 	/// Create a substate executor from the current executor.
 	pub fn substate(&self, gas_limit: usize, is_static: bool) -> StackExecutor<'backend, 'config, B> {
-		Self {
+		let now = Instant::now();
+		let substate = Self {
 			backend: self.backend,
 			gasometer: Gasometer::new(gas_limit, self.gasometer.config()),
 			config: self.config,
 			state: self.state.clone(),
 			deleted: self.deleted.clone(),
-			logs: self.logs.clone(),
+			logs: Vec::new(),
 			precompile: self.precompile,
 			is_static: is_static || self.is_static,
 			depth: match self.depth {
@@ -116,7 +121,10 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 			pending_txs: Vec::new(),
 			tmp_bn: self.tmp_bn,
 			tmp_timestamp: self.tmp_timestamp,
-		}
+			created_contracts: self.created_contracts.clone(),
+		};
+		println!("Elapsed creating substate: {:?}\n State size: {:?}\n Logs: {:?}", now.elapsed(), self.state.len(), self.logs.len());
+		substate
 	}
 
 	/// Execute the runtime until it returns.
@@ -139,10 +147,13 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 	) -> Result<(), ExitError> {
 		self.logs.append(&mut substate.logs);
 		self.deleted.append(&mut substate.deleted);
+		for cc in substate.created_contracts.into_iter() {
+			self.created_contracts.insert(cc.clone());
+		}
 		self.state = substate.state;
-
 		self.gasometer.record_stipend(substate.gasometer.gas())?;
 		self.gasometer.record_refund(substate.gasometer.refunded_gas())?;
+		println!("merged");
 		Ok(())
 	}
 
@@ -357,7 +368,8 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 		self
 	) -> (impl IntoIterator<Item=Apply<impl IntoIterator<Item=(H256, H256)>>>,
 		  impl IntoIterator<Item=Log>,
-		  Vec<TxReceipt>
+		  Vec<TxReceipt>,
+		  BTreeSet<H160>
 	  )
 	{
 		let mut applies = Vec::<Apply<BTreeMap<H256, H256>>>::new();
@@ -391,7 +403,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 		let logs = self.logs;
 		let txs = self.pending_txs;
 
-		(applies, logs, txs)
+		(applies, logs, txs, self.created_contracts.clone())
 	}
 
 	/// Get mutable account reference.
@@ -521,18 +533,22 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 
 		let address = self.create_address(scheme);
 
+		self.created_contracts.insert(address);
+
 		println!("Created address: {:?}", address);
 
 		self.account_mut(caller).basic.nonce += U256::one();
 
 		let mut substate = self.substate(gas_limit, false);
 		{
+			// already exists
 			if let Some(code) = substate.account_mut(address).code.as_ref() {
 				if code.len() != 0 {
 					let _ = self.merge_fail(substate);
 					return Capture::Exit((ExitError::CreateCollision.into(), None, Vec::new()))
 				}
 			} else  {
+				// is a real contract
 				let code = substate.backend.code(address);
 				substate.account_mut(address).code = Some(code.clone());
 
@@ -541,7 +557,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 					return Capture::Exit((ExitError::CreateCollision.into(), None, Vec::new()))
 				}
 			}
-
+			// is a wallet
 			if substate.account_mut(address).basic.nonce > U256::zero() {
 				let _ = self.merge_fail(substate);
 				return Capture::Exit((ExitError::CreateCollision.into(), None, Vec::new()))
@@ -597,8 +613,21 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 				match substate.gasometer.record_deposit(out.len()) {
 					Ok(()) => {
 						let e = self.merge_succeed(substate);
-						self.state.entry(address).or_insert(Default::default())
-							.code = Some(out);
+
+						if self.state.contains_key(&address) {
+							let acct = self.state.get_mut(&address).unwrap();
+							acct.code = Some(out);
+							*acct = acct.clone();
+						} else {
+							let acct = StackAccount {
+								basic: self.backend.basic(address),
+								code: Some(out),
+								storage: BTreeMap::new(),
+								reset_storage: false,
+								reset_storage_backend: false,
+							};
+							self.state.insert(address, acct.clone());
+						}
 						try_or_fail!(e);
 						Capture::Exit((ExitReason::Succeed(s), Some(address), Vec::new()))
 					},
@@ -635,6 +664,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 		take_stipend: bool,
 		context: Context,
 	) -> Capture<(ExitReason, Vec<u8>), Infallible> {
+		println!("new call inner: {:?}", code_address);
 		let mut forced_ret = H256::zero();
 		let mut is_forced_ret = false;
 		if code_address == "7109709ECfa91a80626fF3989D68f67F5b1DD12D".parse().unwrap(){
@@ -884,10 +914,15 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 			if let Some(storage_data) = acct.storage.get(&index) {
 				storage_data.clone()
 			} else {
-				let storage_data = self.backend.storage(address, index);
-				acct.storage.insert(index, storage_data);
-				*acct = acct.clone();
-				storage_data
+				if self.created_contracts.contains(&address) {
+					// this contract was created by self, dont call backend for it
+					H256::default()
+				} else {
+					let storage_data = self.backend.storage(address, index);
+					acct.storage.insert(index, storage_data);
+					*acct = acct.clone();
+					storage_data
+				}
 			}
 		} else {
 			let mut acct = StackAccount {
@@ -910,7 +945,13 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 				return H256::default()
 			}
 		}
-		self.backend.storage(address, index)
+		if self.created_contracts.contains(&address) {
+			// this contract was created by self, dont call backend for it
+			H256::default()
+		} else {
+			let storage = self.backend.storage(address, index);
+			storage
+		}
 	}
 
 	fn exists(&self, address: H160) -> bool {

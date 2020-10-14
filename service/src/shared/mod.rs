@@ -1,14 +1,14 @@
+#![allow(non_camel_case_types)]
 use actix::prelude::*;
-use web3::types::{BlockNumber, Transaction, TransactionRequest, TransactionReceipt};
+use web3::types::{TransactionRequest, TransactionReceipt};
 use primitive_types::{H160, H256, U256};
 use serde::{Serialize, Deserialize};
 use evm::backend::memory::TxReceipt;
-use std::convert::TryInto;
-use sha3::{Keccak256, Digest};
+
 use hash::keccak;
 use std::ops::Deref;
 use rlp::{self, RlpStream, Rlp, DecoderError, Encodable};
-use parity_crypto::publickey::{Signature, Secret, Public, recover, public_to_address};
+use parity_crypto::publickey::{Signature, Public, recover};
 use web3::types::*;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -81,14 +81,13 @@ pub enum EthRequest {
     eth_getStorageAt(H160,U256,Option<U256>),
     eth_getTransactionCount(H160,Option<U256>),
     eth_getCode(H160, Option<U256>),
-    eth_sendTransaction(TransactionRequest),
+    eth_sendTransaction(TransactionRequest, Option<Vec<String>>),
     eth_sendRawTransaction(Vec<u8>),
     eth_call(TransactionRequest, Option<U256>),
     eth_getBlockByHash(H256,bool),
     eth_getBlockByNumber(U256,bool),
     eth_getTransactionByHash(H256),
     eth_getTransactionReceipt(H256),
-    eth_sendTransactionWithReturn(TransactionRequest),
 }
 
 #[derive(MessageResponse, Serialize, Deserialize)]
@@ -106,7 +105,11 @@ pub enum EthResponse {
     eth_getBlockByNumber(Block),
     eth_getTransactionByHash(TxReceipt),
     eth_getTransactionReceipt(TxReceipt),
-    eth_sendTransactionWithReturn(H256, Vec<u8>),
+    eth_sendTransactionWithReturn{ hash: H256, data: Vec<u8>},
+    eth_sendTransactionWithReceipt{ hash: H256, recs: Vec<TxReceipt>},
+    eth_sendTransactionWithLogs{ hash: H256, logs: Vec<evm::backend::Log>},
+    eth_sendTransactionWithLogsAndReturn{ hash: H256, data: Vec<u8>, logs: Vec<evm::backend::Log>},
+    eth_sendTransactionWithLogsAndReturnAndReceipt{ hash: H256, data: Vec<u8>, logs: Vec<evm::backend::Log>, recs: Vec<TxReceipt>},
     eth_unimplemented
 }
 

@@ -39,5 +39,7 @@ members = [
   "gasometer",
   "runtime",
   "implementation",
-  "service"
+  "service",
+  "testing",
+  "rust_solc"
 ]
