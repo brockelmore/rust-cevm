@@ -1,16 +1,17 @@
+use crate::backend::memory::TxReceipt;
+use ethers_core::types::*;
 use jsonrpc_core as rpc;
 use reqwest::blocking::Client;
-use ethers_core::types::*;
 use serde::{Deserialize, Serialize};
-use url::Url;
-use thiserror::Error;
-use std::fmt;
 use serde_json::Value;
-use crate::backend::memory::TxReceipt;
+use std::collections::BTreeSet;
+use std::fmt;
 use std::{thread, time};
+use thiserror::Error;
+use url::Url;
 
 /// Delay between calls
-pub static DELAY: u64 = 50;
+pub static DELAY: u64 = 5;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Error)]
 /// A JSON-RPC 2.0 error
@@ -93,12 +94,12 @@ pub enum ResponseData<R> {
     /// Was error
     Error {
         /// Error field
-        error: JsonRpcError
+        error: JsonRpcError,
     },
     /// Was success
     Success {
         /// Result field
-        result: R
+        result: R,
     },
 }
 
@@ -120,7 +121,7 @@ pub struct Provider {
     /// The provider url
     pub url: Url,
     /// last call
-    pub last_call: u128
+    pub last_call: u128,
 }
 
 impl Provider {
@@ -129,7 +130,7 @@ impl Provider {
         Self {
             client: Client::new(),
             url: Url::parse(&src).unwrap(),
-            last_call: 0
+            last_call: 0,
         }
     }
 
@@ -140,13 +141,14 @@ impl Provider {
     /// Get storage for a particular index at an address
     pub fn get_block_number(&self) -> U256 {
         self.check_delay();
-        println!("eth_blockNumber");
-        let request = build_request(
-            0,
-            "eth_blockNumber",
-            vec![],
-        );
-        let res = self.client.post(self.url.clone()).json(&request).send().expect("provider error, get_storage_at");
+        //println!("eth_blockNumber");
+        let request = build_request(0, "eth_blockNumber", vec![]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_storage_at");
         let res = res.json::<Response<U256>>().unwrap();
         res.data.into_result().unwrap()
     }
@@ -154,15 +156,16 @@ impl Provider {
     /// Get storage for a particular index at an address
     pub fn get_block(&self) -> Block<H256> {
         self.check_delay();
-        println!("eth_getBlockByNumber");
+        //println!("eth_getBlockByNumber");
         let index = serialize(&"latest".to_string());
         let txs = serialize(&false);
-        let request = build_request(
-            0,
-            "eth_getBlockByNumber",
-            vec![index, txs],
-        );
-        let res = self.client.post(self.url.clone()).json(&request).send().expect("provider error, get_storage_at");
+        let request = build_request(0, "eth_getBlockByNumber", vec![index, txs]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_storage_at");
         let res = res.json::<Response<Block<H256>>>().unwrap();
         res.data.into_result().unwrap()
     }
@@ -170,7 +173,7 @@ impl Provider {
     /// Get storage for a particular index at an address
     pub fn get_storage_at(&self, address: H160, index: H256, block: Option<U256>) -> H256 {
         self.check_delay();
-        println!("eth_getStorageAt, {:?}, {:?}", address, index);
+        //println!("eth_getStorageAt, {:?}, {:?}", address, index);
         let address = serialize(&address);
         let index = serialize(&index);
         let b;
@@ -183,12 +186,13 @@ impl Provider {
             }
         }
 
-        let request = build_request(
-            0,
-            "eth_getStorageAt",
-            vec![address, index, b],
-        );
-        let res = self.client.post(self.url.clone()).json(&request).send().expect("provider error, get_storage_at");
+        let request = build_request(0, "eth_getStorageAt", vec![address, index, b]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_storage_at");
         let res = res.json::<Response<H256>>().unwrap();
         res.data.into_result().unwrap()
     }
@@ -196,10 +200,10 @@ impl Provider {
     /// Gets the bytecode for an address
     pub fn get_code(&self, address: H160, block: Option<U256>) -> Bytes {
         if address == "7109709ecfa91a80626ff3989d68f67f5b1dd12d".parse().unwrap() {
-            return Bytes::new()
+            return Bytes::new();
         }
         self.check_delay();
-        println!("eth_getCode, {:?}", address);
+        //println!("eth_getCode, {:?}", address);
         let address = serialize(&address);
         let b;
         match block {
@@ -211,12 +215,13 @@ impl Provider {
             }
         }
 
-        let request = build_request(
-            0,
-            "eth_getCode",
-            vec![address, b],
-        );
-        let res = self.client.post(self.url.clone()).json(&request).send().expect("provider error, get_code");
+        let request = build_request(0, "eth_getCode", vec![address, b]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_code");
         let res = res.json::<Response<Bytes>>().unwrap();
         res.data.into_result().unwrap()
     }
@@ -224,7 +229,7 @@ impl Provider {
     /// Gets the balance of an address
     pub fn get_balance(&self, address: H160, block: Option<U256>) -> U256 {
         self.check_delay();
-        println!("eth_getBalance");
+        //println!("eth_getBalance");
         let address = serialize(&address);
         let b;
         match block {
@@ -236,12 +241,13 @@ impl Provider {
             }
         }
 
-        let request = build_request(
-            0,
-            "eth_getBalance",
-            vec![address, b],
-        );
-        let res = self.client.post(self.url.clone()).json(&request).send().expect("provider error, get_balance");
+        let request = build_request(0, "eth_getBalance", vec![address, b]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_balance");
         let res = res.json::<Response<U256>>().unwrap();
         res.data.into_result().unwrap()
     }
@@ -249,7 +255,7 @@ impl Provider {
     /// Gets the tx count for an address
     pub fn get_transaction_count(&self, address: H160, block: Option<U256>) -> U256 {
         self.check_delay();
-        println!("eth_getTransactionCount");
+        //println!("eth_getTransactionCount");
         let address = serialize(&address);
         let b;
         match block {
@@ -261,12 +267,13 @@ impl Provider {
             }
         }
 
-        let request = build_request(
-            0,
-            "eth_getTransactionCount",
-            vec![address, b],
-        );
-        let res = self.client.post(self.url.clone()).json(&request).send().expect("provider error, get_tx_count");
+        let request = build_request(0, "eth_getTransactionCount", vec![address, b]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_tx_count");
         let res = res.json::<Response<U256>>().unwrap();
         res.data.into_result().unwrap()
     }
@@ -274,38 +281,54 @@ impl Provider {
     /// Gets the tx count for an address
     pub fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
         self.check_delay();
-        println!("eth_getTransactionReceipt");
+        //println!("eth_getTransactionReceipt");
         let h = serialize(&hash);
 
-        let request = build_request(
-            0,
-            "eth_getTransactionReceipt",
-            vec![h],
-        );
-        let res = self.client.post(self.url.clone()).json(&request).send().expect("provider error, get_tx_count");
+        let request = build_request(0, "eth_getTransactionReceipt", vec![h]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_tx_count");
         let res = res.json::<Response<TransactionReceiptExtended>>().unwrap();
         let res = res.data.into_result().unwrap();
         let mut logs = Vec::with_capacity(res.logs.len());
         for log in res.logs.iter() {
             let web3::types::Bytes(raw) = log.data.clone();
-            logs.push(
-                crate::backend::Log {
-                	address: log.address,
-                	topics: log.topics.clone(),
-                	data: raw,
-                }
-            );
+            logs.push(crate::backend::Log {
+                address: log.address,
+                topics: log.topics.clone(),
+                data: raw,
+            });
         }
-        return TxReceipt {
-        	hash: res.transaction_hash,
-        	caller: res.from,
-            to: res.to,
-        	block_number: U256::from(res.block_number.unwrap().as_u64()),
-        	cumulative_gas_used: res.cumulative_gas_used.as_usize(),
-        	gas_used: res.gas_used.unwrap().as_usize(),
-        	contract_address: res.contract_address,
-        	logs,
-        	status: res.status.unwrap().as_usize(),
+        match res.contract_address {
+            Some(addr) => {
+                let mut addrs = BTreeSet::new();
+                addrs.insert(addr);
+                TxReceipt {
+                    hash: res.transaction_hash,
+                    caller: res.from,
+                    to: res.to,
+                    block_number: U256::from(res.block_number.unwrap().as_u64()),
+                    cumulative_gas_used: res.cumulative_gas_used.as_usize(),
+                    gas_used: res.gas_used.unwrap().as_usize(),
+                    contract_addresses: addrs,
+                    logs,
+                    status: res.status.unwrap().as_usize(),
+                }
+            }
+            _ => TxReceipt {
+                hash: res.transaction_hash,
+                caller: res.from,
+                to: res.to,
+                block_number: U256::from(res.block_number.unwrap().as_u64()),
+                cumulative_gas_used: res.cumulative_gas_used.as_usize(),
+                gas_used: res.gas_used.unwrap().as_usize(),
+                contract_addresses: BTreeSet::new(),
+                logs,
+                status: res.status.unwrap().as_usize(),
+            },
         }
     }
 }

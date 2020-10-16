@@ -1,20 +1,20 @@
-use std::rc::Rc;
-use evm_core::{Machine, Capture, ExitSucceed};
+use evm_core::{Capture, ExitSucceed, Machine};
 use primitive_types::*;
+use std::rc::Rc;
 
 macro_rules! ret_test {
-	( $name:ident, $code:expr, $data:expr, $ret:expr ) => (
-		#[test]
-		fn $name() {
-			let code = hex::decode($code).unwrap();
-			let data = hex::decode($data).unwrap();
+    ( $name:ident, $code:expr, $data:expr, $ret:expr ) => {
+        #[test]
+        fn $name() {
+            let code = hex::decode($code).unwrap();
+            let data = hex::decode($data).unwrap();
 
-			let mut vm = Machine::new(Rc::new(code), Rc::new(data), 1024, 10000);
-			println!("{:?}", vm.run());
-			// assert_eq!(vm.run(), Capture::Exit(ExitSucceed::Returned.into()));
-			// assert_eq!(vm.return_value(), hex::decode($ret).unwrap());
-		}
-	);
+            let mut vm = Machine::new(Rc::new(code), Rc::new(data), 1024, 10000);
+            println!("{:?}", vm.run());
+            // assert_eq!(vm.run(), Capture::Exit(ExitSucceed::Returned.into()));
+            // assert_eq!(vm.return_value(), hex::decode($ret).unwrap());
+        }
+    };
 }
 
 fn from_slice(bytes: &[u8]) -> [u8; 32] {

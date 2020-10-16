@@ -2,7 +2,6 @@
 //!
 //! Providers interact with the to-be-forked chain via http
 
-
 /// module for webpage
 #[cfg(feature = "web")]
 pub mod webprovider;

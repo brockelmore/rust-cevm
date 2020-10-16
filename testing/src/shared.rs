@@ -1,14 +1,10 @@
 use actix::prelude::*;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-pub enum TestRequest {
-
-}
+pub enum TestRequest {}
 
 #[derive(MessageResponse, Serialize, Deserialize)]
-pub enum TestResponse {
-
-}
+pub enum TestResponse {}
 
 impl Message for TestRequest {
     type Result = TestResponse;

@@ -4,6 +4,7 @@ extern crate error_chain;
 #[macro_use]
 extern crate lazy_static;
 
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -70,7 +71,6 @@ pub fn compile_dir<A: AsRef<Path>, B: AsRef<Path>>(
     input_dir_path: A,
     output_dir_path: B,
 ) -> error::Result<()> {
-
     solc_compile(&input_dir_path, &output_dir_path)?;
     Ok(())
 }
@@ -85,14 +85,18 @@ pub fn solc_compile<A: AsRef<Path>, B: AsRef<Path>>(
 ) -> error::Result<Output> {
     // solc --optimize --optimize-runs 50000 --overwrite --combined-json=abi,bin,bin-runtime,srcmap,srcmap-runtime,ast,metadata /=/
     let mut args = vec![
-            "--optimize",
-            "--optimize-runs",
-            "50000",
-            "--combined-json",
-            "abi,bin,bin-runtime,srcmap,srcmap-runtime,ast,metadata",
-            "--bin",
-            "--output-dir",
-            output_dir_path.as_ref().to_str().unwrap(),
+        "--optimize",
+        "--optimize-runs",
+        "50000",
+        "--overwrite",
+        "--combined-json",
+        "abi,bin,bin-runtime,srcmap,srcmap-runtime,ast,metadata",
+        "--bin",
+        "--bin-runtime",
+        "--evm-version",
+        "istanbul",
+        "--output-dir",
+        output_dir_path.as_ref().to_str().unwrap(),
     ];
     let contracts = solidity_file_paths(input_dir_path).unwrap();
     for contract in contracts.iter() {
@@ -143,12 +147,12 @@ pub fn solidity_file_paths<T: AsRef<Path>>(directory: T) -> std::io::Result<Vec<
 
     for maybe_entry in std::fs::read_dir(directory)? {
         let path = maybe_entry?.path();
-        println!("path: {:?}", path);
         if path.is_dir() {
             results.extend(solidity_file_paths(path)?);
         } else if let Some(extension) = path.extension().map(|x| x.to_os_string()) {
             if extension.as_os_str() == "sol" {
-                results.push(path);
+                let srcdir = PathBuf::from(path);
+                results.push(fs::canonicalize(&srcdir)?);
             }
         }
     }

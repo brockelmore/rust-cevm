@@ -3,53 +3,435 @@ extern crate serde;
 extern crate serde_json;
 extern crate simple_error;
 
-use glob::glob;
 use serde_json::{json, Value as JsonValue};
-use simple_error::bail;
 
+use ethabi_next::*;
+use evm::{backend::memory::TxReceipt, executor::CallTrace};
 use solc;
 use std::collections::HashMap;
 use std::error::Error;
+use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use web3::types::{H160, U256};
+
+use tiny_keccak::Keccak;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+#[derive(Clone)]
+pub struct BetterBytes(Vec<u8>);
+
+#[derive(Clone)]
+pub struct BetterH160(H160);
+
+impl fmt::Debug for BetterH160 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", hex::encode(self.0.clone()))
+    }
+}
+
+impl fmt::Debug for BetterBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", hex::encode(self.0.clone()))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum BetterToken {
+    Address(BetterH160),
+    FixedBytes(BetterBytes),
+    Bytes(BetterBytes),
+    Int(U256),
+    Uint(U256),
+    Bool(bool),
+    String(String),
+    FixedArray(Vec<BetterToken>),
+    Array(Vec<BetterToken>),
+    Tuple(Vec<BetterToken>),
+}
+
+impl From<Token> for BetterToken {
+    fn from(tkn: Token) -> BetterToken {
+        match tkn {
+            Token::Address(a) => BetterToken::Address(BetterH160(a)),
+            Token::FixedBytes(b) => BetterToken::FixedBytes(BetterBytes(b)),
+            Token::Bytes(b) => BetterToken::Bytes(BetterBytes(b)),
+            Token::Int(u) => BetterToken::Int(u),
+            Token::Uint(u) => BetterToken::Uint(u),
+            Token::Bool(b) => BetterToken::Bool(b),
+            Token::String(s) => BetterToken::String(s),
+            Token::FixedArray(ts) => {
+                let mut tss = Vec::new();
+                for t in ts.iter() {
+                    tss.push(BetterToken::from(t.clone()));
+                }
+                BetterToken::FixedArray(tss)
+            }
+            Token::Array(ts) => {
+                let mut tss = Vec::new();
+                for t in ts.iter() {
+                    tss.push(BetterToken::from(t.clone()));
+                }
+                BetterToken::FixedArray(tss)
+            }
+            Token::Tuple(ts) => {
+                let mut tss = Vec::new();
+                for t in ts.iter() {
+                    tss.push(BetterToken::from(t.clone()));
+                }
+                BetterToken::FixedArray(tss)
+            }
+        }
+    }
+}
 
 #[derive(serde::Serialize, Debug)]
 struct SolidityFile {
     content: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-struct SolidityArtifact {
-    contract_name: String,
-    file_name: String,
-    source_path: String,
-    source: String,
-    bytecode: String,
-    deployed_bytecode: String,
-    source_map: String,
-    deployed_source_map: String,
-    abi: JsonValue,
-    ast: JsonValue,
+pub struct SolcContract {
+    pub bin: String,
+    #[serde(rename = "bin-runtime")]
+    pub bin_runtime: String,
+    pub metadata: JsonValue,
+    pub srcmap: String,
+    #[serde(rename = "srcmap-runtime")]
+    pub srcmap_runtime: String,
+    #[serde(skip_serializing)]
+    pub abi: Contract,
+    pub ast: Option<JsonValue>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-struct SolcOutput {
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct SolcOutput {
     #[serde(default)]
-    contracts: HashMap<String, HashMap<String, SolcContract>>,
+    pub contracts: HashMap<String, SolcContract>,
     #[serde(default)]
-    sources: HashMap<String, SolcSource>,
-    #[serde(default)]
-    errors: Vec<SolcError>,
+    pub sources: HashMap<String, SolcSource>,
+    #[serde(skip_serializing)]
+    pub contract_addresses: HashMap<H160, Option<String>>,
+    #[serde(skip_serializing)]
+    pub contract_addresses_rev: HashMap<String, Option<H160>>,
+    // #[serde(default)]
+    // errors: Vec<SolcError>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-struct SolcContract {
-    evm: SolcContractEvm,
-    abi: JsonValue,
+#[derive(Debug)]
+pub struct SourcedLog {
+    pub name: String,
+    pub log: Option<Log>,
+    pub unknown: Option<evm::backend::Log>,
+}
+
+#[derive(Debug)]
+pub struct SourceTrace {
+    pub name: String,
+    pub address: H160,
+    pub success: bool,
+    pub created: bool,
+    pub function: String,
+    pub inputs: TokensOrString,
+    pub cost: usize,
+    pub output: TokensOrString,
+    pub inner: Vec<Box<SourceTrace>>,
+}
+
+#[derive(Debug)]
+pub enum TokensOrString {
+    Tokens(Vec<BetterToken>),
+    String(String),
+}
+
+pub struct Writer;
+
+impl Writer {
+    /// Returns string which is a formatted represenation of param.
+    pub fn write(param: &ParamType) -> String {
+        match *param {
+            ParamType::Address => "address".to_owned(),
+            ParamType::Bytes => "bytes".to_owned(),
+            ParamType::FixedBytes(len) => format!("bytes{}", len),
+            ParamType::Int(len) => format!("int{}", len),
+            ParamType::Uint(len) => format!("uint{}", len),
+            ParamType::Bool => "bool".to_owned(),
+            ParamType::String => "string".to_owned(),
+            ParamType::FixedArray(ref param, len) => format!("{}[{}]", Writer::write(param), len),
+            ParamType::Array(ref param) => format!("{}[]", Writer::write(param)),
+            ParamType::Tuple(ref params) => format!(
+                "({})",
+                params
+                    .iter()
+                    .map(|ref t| format!("{}", t))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            ),
+        }
+    }
+}
+
+pub fn short_signature(name: &str, params: &[ParamType]) -> [u8; 4] {
+    let mut result = [0u8; 4];
+    fill_signature(name, params, &mut result);
+    result
+}
+
+fn fill_signature(name: &str, params: &[ParamType], result: &mut [u8]) {
+    let types = params
+        .iter()
+        .map(Writer::write)
+        .collect::<Vec<String>>()
+        .join(",");
+
+    let data: Vec<u8> = From::from(format!("{}({})", name, types).as_str());
+
+    let mut sponge = Keccak::new_keccak256();
+    sponge.update(&data);
+    sponge.finalize(result);
+}
+
+impl SolcOutput {
+    pub fn parse_events_from_rec(&self, rec: TxReceipt) -> Vec<SourcedLog> {
+        let mut logs = Vec::with_capacity(rec.logs.len());
+        for log in rec.logs.iter() {
+            if let Some(maybe_src) = self.contract_addresses.get(&log.address) {
+                if let Some(src) = maybe_src {
+                    let contract = self.contracts.get(src).unwrap();
+                    let raw_log = RawLog::from((log.topics.clone(), log.data.clone()));
+                    let events = contract.abi.events();
+                    for event in events {
+                        let sig = event.signature();
+                        if sig == raw_log.clone().topics[0] {
+                            logs.push(SourcedLog {
+                                name: src.to_string(),
+                                log: Some(event.parse_log(raw_log.clone()).unwrap()),
+                                unknown: None,
+                            });
+                        }
+                    }
+                } else {
+                    logs.push(SourcedLog {
+                        name: hex::encode(log.address.as_bytes()),
+                        log: None,
+                        unknown: Some(log.clone()),
+                    });
+                }
+            }
+        }
+        logs
+    }
+
+    pub fn parse_call_trace(&self, trace: Vec<Box<CallTrace>>) -> Vec<Box<SourceTrace>> {
+        let mut traces = Vec::with_capacity(trace.len());
+        for t in trace.iter() {
+            let mut out_tokens;
+            if let Some(maybe_src) = self.contract_addresses.get(&t.addr) {
+                if let Some(full_src) = maybe_src {
+                    let src = to_contract_name(full_src);
+                    let contract = self.contracts.get(full_src).unwrap();
+                    let funcs = contract.abi.functions();
+                    let mut found = false;
+                    for f in funcs {
+                        let params: Vec<ParamType> =
+                            f.inputs.iter().map(|p| p.kind.clone()).collect();
+                        let sig = hex::encode(short_signature(&f.name, &params));
+                        if sig == t.function.clone() {
+                            let tokens = f
+                                .decode_input(&hex::decode(t.input.clone()).unwrap())
+                                .unwrap();
+                            let mut tss = Vec::new();
+                            for t in tokens.iter() {
+                                tss.push(BetterToken::from(t.clone()));
+                            }
+                            if !t.success {
+                                out_tokens = parse_error(t.output.clone());
+                            } else {
+                                out_tokens = f
+                                    .decode_output(&hex::decode(t.output.clone()).unwrap())
+                                    .unwrap();
+                            }
+
+                            let mut tso = Vec::new();
+                            for t in out_tokens.iter() {
+                                tso.push(BetterToken::from(t.clone()));
+                            }
+
+                            traces.push(Box::new(SourceTrace {
+                                name: src.to_string(),
+                                address: t.addr.clone(),
+                                success: t.success,
+                                created: t.created,
+                                function: f.name.clone(),
+                                inputs: TokensOrString::Tokens(tss),
+                                cost: t.cost,
+                                output: TokensOrString::Tokens(tso),
+                                inner: self.parse_call_trace(t.inner.clone()),
+                            }));
+                            found = true;
+                        }
+                    }
+                    if !found {
+                        let out;
+                        if !t.success {
+                            out_tokens = parse_error(t.output.clone());
+                            let mut tso = Vec::new();
+                            for t in out_tokens.iter() {
+                                tso.push(BetterToken::from(t.clone()));
+                            }
+                            out = TokensOrString::Tokens(tso);
+                        } else {
+                            out = TokensOrString::String(t.output.clone());
+                        }
+
+                        traces.push(Box::new(SourceTrace {
+                            name: src.to_string(),
+                            address: t.addr.clone(),
+                            success: t.success,
+                            created: t.created,
+                            function: t.function.clone(),
+                            inputs: TokensOrString::String(t.input.clone()),
+                            cost: t.cost,
+                            output: out,
+                            inner: self.parse_call_trace(t.inner.clone()),
+                        }));
+                    }
+                } else {
+                    let out;
+                    if !t.success {
+                        out_tokens = parse_error(t.output.clone());
+                        let mut tso = Vec::new();
+                        for t in out_tokens.iter() {
+                            tso.push(BetterToken::from(t.clone()));
+                        }
+                        out = TokensOrString::Tokens(tso);
+                    } else {
+                        out = TokensOrString::String(t.output.clone());
+                    }
+                    traces.push(Box::new(SourceTrace {
+                        name: String::new(),
+                        address: t.addr.clone(),
+                        success: t.success,
+                        created: t.created,
+                        function: t.function.clone(),
+                        inputs: TokensOrString::String(t.input.clone()),
+                        cost: t.cost,
+                        output: out,
+                        inner: self.parse_call_trace(t.inner.clone()),
+                    }));
+                }
+            } else {
+                let out;
+                if !t.success {
+                    out_tokens = parse_error(t.output.clone());
+                    let mut tso = Vec::new();
+                    for t in out_tokens.iter() {
+                        tso.push(BetterToken::from(t.clone()));
+                    }
+                    out = TokensOrString::Tokens(tso);
+                } else {
+                    out = TokensOrString::String(t.output.clone());
+                }
+                traces.push(Box::new(SourceTrace {
+                    name: String::new(),
+                    address: t.addr.clone(),
+                    success: t.success,
+                    created: t.created,
+                    function: t.function.clone(),
+                    inputs: TokensOrString::String(t.input.clone()),
+                    cost: t.cost,
+                    output: out,
+                    inner: self.parse_call_trace(t.inner.clone()),
+                }));
+            }
+        }
+        traces
+    }
+}
+
+pub fn to_contract_name(full: &str) -> &str {
+    let mut src_strs: Vec<&str> = full.rsplit(':').collect();
+    let src = src_strs.first().unwrap().clone();
+    src
+}
+
+fn parse_error(output: String) -> Vec<Token> {
+    let error_sig = "08c379a0";
+    let mut tokens = Vec::new();
+    if &output[0..8] == error_sig {
+        let err_f = Function {
+            name: "Error".to_string(),
+            inputs: vec![],
+            outputs: vec![Param {
+                name: "msg".to_string(),
+                kind: ParamType::String,
+            }],
+            state_mutability: StateMutability::View,
+        };
+        tokens = err_f
+            .decode_output(&hex::decode(&output[8..]).unwrap())
+            .unwrap();
+    } else {
+        tokens = vec![Token::Bytes(hex::decode(output.clone()).unwrap())];
+    }
+    tokens
+}
+
+#[derive(Debug)]
+pub struct ABIString {
+    pub core: String,
+    pub other: Vec<Box<ABIString>>,
+}
+
+fn flatten_tokens_to_strings(tokens: Vec<Token>) -> Vec<Box<ABIString>> {
+    let mut as_strings = Vec::new();
+    for token in tokens.iter() {
+        let mut tmp = ABIString {
+            core: String::new(),
+            other: Vec::new(),
+        };
+        match token {
+            Token::Address(addr) => {
+                tmp.core = hex::encode(addr.as_bytes());
+            }
+            Token::FixedBytes(b) => {
+                tmp.core = hex::encode(b);
+            }
+            Token::Bytes(b) => {
+                tmp.core = hex::encode(b);
+            }
+            Token::Int(u) => {
+                let mut bytes = [0; 32];
+                u.to_big_endian(&mut bytes);
+                tmp.core = hex::encode(bytes);
+            }
+            Token::Uint(u) => {
+                let mut bytes = [0; 32];
+                u.to_big_endian(&mut bytes);
+                tmp.core = hex::encode(bytes);
+            }
+            Token::Bool(b) => {
+                tmp.core = b.to_string();
+            }
+            Token::String(s) => {
+                tmp.core = s.to_string();
+            }
+            Token::FixedArray(ts) => {
+                tmp.other = flatten_tokens_to_strings(ts.to_vec());
+            }
+            Token::Array(ts) => {
+                tmp.other = flatten_tokens_to_strings(ts.to_vec());
+            }
+            Token::Tuple(ts) => {
+                tmp.other = flatten_tokens_to_strings(ts.to_vec());
+            }
+        }
+        as_strings.push(Box::new(tmp));
+    }
+    as_strings
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
@@ -68,9 +450,10 @@ struct SolcBytecodeOutput {
     // opcodes,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-struct SolcSource {
-    ast: JsonValue,
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct SolcSource {
+    #[serde(rename = "AST")]
+    pub ast: JsonValue,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
@@ -80,155 +463,168 @@ struct SolcError {
     formatted_message: String,
 }
 
-fn build_contract_schemas(
-    output: &SolcOutput,
-    sources: &HashMap<String, SolidityFile>,
-) -> Vec<SolidityArtifact> {
-    output
-        .contracts
-        .iter()
-        .flat_map(
-            |(path, contracts): (&String, &HashMap<String, SolcContract>)| {
-                let solc_source: &SolcSource = output.sources.get(path).unwrap();
-                contracts
-                    .iter()
-                    .map(move |(name, contract): (&String, &SolcContract)| {
-                        let ref source = sources.get(path).unwrap().content;
-                        build_contract_schema(path, name, source, solc_source, contract)
-                    })
-            },
-        )
-        .collect()
-}
-
-fn build_contract_schema(
-    path: &String,
-    name: &String,
-    source: &String,
-    solc_source: &SolcSource,
-    solc_contract: &SolcContract,
-) -> SolidityArtifact {
-    SolidityArtifact {
-        abi: solc_contract.abi.clone(),
-        bytecode: solc_contract.evm.bytecode.object.clone(),
-        deployed_bytecode: solc_contract.evm.deployed_bytecode.object.clone(),
-        contract_name: name.clone(),
-        file_name: String::from(Path::new(path).file_name().unwrap().to_str().unwrap()),
-        ast: solc_source.ast.clone(),
-        source_path: path.clone(),
-        source: source.clone(),
-        source_map: solc_contract.evm.bytecode.source_map.clone(),
-        deployed_source_map: solc_contract.evm.deployed_bytecode.source_map.clone(),
+pub fn compile() -> SolcOutput {
+    if !Path::new("./out2").exists() {
+        fs::create_dir("./out2").unwrap();
     }
+
+    solc::compile_dir("./contracts", "./out2").unwrap();
+    let mut file = fs::read_to_string("./out2/combined.json").unwrap();
+    let mut json: JsonValue = serde_json::from_str(&file).expect("JSON was not well-formatted");
+
+    let mut solc_output = SolcOutput {
+        contracts: HashMap::new(),
+        sources: HashMap::new(),
+        contract_addresses: HashMap::new(),
+        contract_addresses_rev: HashMap::new(),
+    };
+
+    add_cheat_codes(&mut solc_output);
+
+    fix_typing(&mut json, &mut solc_output);
+
+    // println!("{:?}", solc_output.contracts.iter().take(1).next().unwrap().1.abi.functions);
+
+    solc_output
 }
 
-fn write_contract_schemas(artifacts: &[SolidityArtifact], output_path: &Path) {
-    for artifact in artifacts {
-        let json =
-            serde_json::to_string_pretty(artifact).expect("Error serializing solidity artifact");
-        let mut path = PathBuf::from(output_path);
-        path.push(&artifact.contract_name);
-        path.set_extension("json");
-        fs::write(path.as_path(), json).expect("Error writing solidity artifact");
-    }
-}
-
-fn get_solidity_sources() -> HashMap<String, SolidityFile> {
-    glob("./contracts/**/*.sol")
-        .expect("Error parsing contracts glob")
-        .map(|path: glob::GlobResult| {
-            let path = path.expect("Error accessing local path");
-            let content = fs::read_to_string(&path).expect("Error reading contract file");
-            let filename = String::from(path.to_str().unwrap());
-            (filename, SolidityFile { content })
-        })
-        .into_iter()
-        .collect()
-}
-
-fn build_solc_input_json(
-    sources: &HashMap<String, SolidityFile>,
-    evm_version: &str,
-) -> serde_json::Value {
-    json!({
-      "language": "Solidity",
-      "settings": {
-        "evmVersion": evm_version,
-        "optimizer": {
-          "enabled": false
+fn add_cheat_codes(solc_output: &mut SolcOutput) {
+    let mut hax = SolcContract {
+        bin: String::new(),
+        bin_runtime: String::new(),
+        metadata: JsonValue::default(),
+        srcmap: String::new(),
+        srcmap_runtime: String::new(),
+        abi: Contract {
+            constructor: None,
+            functions: HashMap::new(),
+            events: HashMap::new(),
+            receive: false,
+            fallback: false,
         },
-        "outputSelection": {
-          "*": {
-            "": ["ast"],
-            "*": [
-              "abi",
-              "evm.bytecode.object",
-              "evm.deployedBytecode.object",
+        ast: None,
+    };
+    hax.abi.functions.insert(
+        "roll".to_string(),
+        vec![Function {
+            name: "roll".to_string(),
+            inputs: vec![Param {
+                name: "time".to_string(),
+                kind: ParamType::Uint(256),
+            }],
+            outputs: vec![],
+            state_mutability: StateMutability::Nonpayable,
+        }],
+    );
+    hax.abi.functions.insert(
+        "warp".to_string(),
+        vec![Function {
+            name: "warp".to_string(),
+            inputs: vec![Param {
+                name: "bn".to_string(),
+                kind: ParamType::Uint(256),
+            }],
+            outputs: vec![],
+            state_mutability: StateMutability::Nonpayable,
+        }],
+    );
+    hax.abi.functions.insert(
+        "store".to_string(),
+        vec![Function {
+            name: "store".to_string(),
+            inputs: vec![
+                Param {
+                    name: "who".to_string(),
+                    kind: ParamType::Address,
+                },
+                Param {
+                    name: "slot".to_string(),
+                    kind: ParamType::FixedBytes(32),
+                },
+                Param {
+                    name: "val".to_string(),
+                    kind: ParamType::FixedBytes(32),
+                },
             ],
-          },
+            outputs: vec![],
+            state_mutability: StateMutability::Nonpayable,
+        }],
+    );
+    hax.abi.functions.insert(
+        "load".to_string(),
+        vec![Function {
+            name: "load".to_string(),
+            inputs: vec![
+                Param {
+                    name: "who".to_string(),
+                    kind: ParamType::Address,
+                },
+                Param {
+                    name: "slot".to_string(),
+                    kind: ParamType::FixedBytes(32),
+                },
+            ],
+            outputs: vec![],
+            state_mutability: StateMutability::View,
+        }],
+    );
+    solc_output.contracts.insert("Cheater".to_string(), hax);
+    let addr: H160 = "7109709ECfa91a80626fF3989D68f67F5b1DD12D".parse().unwrap();
+    solc_output
+        .contract_addresses
+        .insert(addr, Some("Cheater".to_string()));
+    solc_output
+        .contract_addresses_rev
+        .insert("Cheater".to_string(), Some(addr));
+}
+
+fn fix_typing(json: &mut JsonValue, solc_output: &mut SolcOutput) {
+    match json.clone() {
+        JsonValue::Object(contracts) => {
+            for (c_name, val) in contracts.iter() {
+                match val {
+                    JsonValue::Object(contract) => {
+                        for (c_key, val) in contract.iter() {
+                            if c_name == "contracts" {
+                                match val {
+                                    JsonValue::Object(inner_contract) => {
+                                        for (key, val) in inner_contract.iter() {
+                                            match key.as_str() {
+                                                "abi" => match val {
+                                                    JsonValue::String(as_s) => {
+                                                        json[c_name][c_key][key] =
+                                                            serde_json::from_str(&as_s).unwrap();
+                                                    }
+                                                    _ => {}
+                                                },
+                                                "metadata" => match val {
+                                                    JsonValue::String(as_s) => {
+                                                        json[c_name][c_key][key] =
+                                                            serde_json::from_str(&as_s).unwrap();
+                                                    }
+                                                    _ => {}
+                                                },
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                };
+
+                                let t: SolcContract =
+                                    serde_json::from_value(json[c_name][c_key].clone()).unwrap();
+                                solc_output.contracts.insert(c_key.to_string(), t);
+                            } else if c_name == "sources" {
+                                let t: SolcSource =
+                                    serde_json::from_value(json[c_name][c_key].clone()).unwrap();
+                                solc_output.sources.insert(c_key.to_string(), t);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
-      },
-      "sources": sources
-    })
+        _ => {}
+    };
 }
-
-fn get_content_from_path(path: &str) -> std::result::Result<String, String> {
-    let path: PathBuf = ["node_modules", path].iter().collect();
-    fs::read_to_string(&path)
-        .map_err(|err: io::Error| format!("Error opening file {}: {}", path.display(), err))
-}
-
-pub fn run() {
-    // Create list of solidity sources with content
-    let mut sources: HashMap<String, SolidityFile> = get_solidity_sources();
-
-    // Create standard-json input for solc
-    let evm_version = "constantinople";
-    let input = build_solc_input_json(&sources, &evm_version);
-
-
-    // Compile & parse output
-    // let raw_output = solc::compile_with_callback(
-    //     &input.to_string(),
-    //     |kind: &str, path: &str| -> std::result::Result<String, String> {
-    //         if kind != "source" {
-    //             Err(format!("Unexpected kind {} (expected 'source')", kind))
-    //         } else if let Some(file) = sources.get(path) {
-    //             Ok(file.content.clone())
-    //         } else {
-    //             let content: String = get_content_from_path(path)?;
-    //             sources.insert(path.to_string(), SolidityFile { content: content.clone() });
-    //             Ok(content)
-    //         }
-    //     },
-    // );
-    let raw_output = solc::compile(&input.to_string());
-    println!("raw_output {:?}", raw_output);
-    // let output: SolcOutput = serde_json::from_str(&raw_output)?;
-    //
-    // // Log errors and exit early if needed
-    // let mut has_errors = false;
-    // for err in &output.errors {
-    //     eprintln!("{}", err.formatted_message);
-    //     if err.severity == "error" {
-    //         has_errors = true;
-    //     }
-    // }
-    //
-    // if has_errors {
-    //     bail!("Compilation failed");
-    // }
-    //
-    // // Create & write artifacts
-    // let artifacts: Vec<SolidityArtifact> = build_contract_schemas(&output, &sources);
-    // let output_path = Path::new("./build/contracts/");
-    // fs::create_dir_all(output_path)?;
-    // write_contract_schemas(&artifacts, &output_path);
-    // eprintln!("Compiled {} artifacts", artifacts.len());
-    //
-    // Ok(())
-}
-//
-// pub fn main() -> Result<()> {
-//     run()
-// }

@@ -10,7 +10,7 @@ pub fn log2floor(value: U256) -> usize {
         } else {
             l -= value.0[i].leading_zeros() as usize;
             if l == 0 {
-                return l
+                return l;
             } else {
                 return l - 1;
             }

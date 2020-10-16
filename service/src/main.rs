@@ -1,14 +1,14 @@
-pub mod shared;
 #[allow(non_snake_case)]
 pub mod EVM;
 pub mod server;
+pub mod shared;
 
-use EVM::*;
 use server::*;
+use EVM::*;
 
-use std::time::Duration;
 use actix::clock::delay_for;
 use actix::prelude::*;
+use std::time::Duration;
 
 extern crate serde_json;
 
@@ -18,8 +18,9 @@ async fn main() {
     // let provider = "http://localhost:8855";
     let evm_addr = SyncArbiter::start(1, move || EVMService::new(provider));
     let _api = Api {
-        evm: evm_addr.recipient()
-    }.start();
+        evm: evm_addr.recipient(),
+    }
+    .start();
 
     loop {
         // println!("in loop");

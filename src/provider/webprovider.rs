@@ -8,7 +8,7 @@
 /// An http client for interacting with a blockchain
 pub struct Provider {
     /// the client
-    pub client: String
+    pub client: String,
 }
 //
 // impl Provider {

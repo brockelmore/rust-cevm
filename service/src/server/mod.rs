@@ -1,7 +1,6 @@
 #![allow(unused_must_use)]
-use actix::prelude::*;
 use crate::shared::*;
-
+use actix::prelude::*;
 
 use bytes::buf::BufExt;
 
@@ -89,11 +88,11 @@ pub async fn evm_process(
         "eth_accounts" => {
             let result = evm.send(EthRequest::eth_accounts).await;
             res = result.unwrap_or(EthResponse::eth_unimplemented);
-        },
+        }
         "eth_blockNumber" => {
             let result = evm.send(EthRequest::eth_blockNumber).await;
             res = result.unwrap_or(EthResponse::eth_unimplemented);
-        },
+        }
         "eth_getBalance" => {
             let who: H160 = serde_json::from_value(data["params"][0].clone()).unwrap();
             let block;
@@ -120,7 +119,9 @@ pub async fn evm_process(
                     block = None;
                 }
             }
-            let result = evm.send(EthRequest::eth_getStorageAt(who, slot, block)).await;
+            let result = evm
+                .send(EthRequest::eth_getStorageAt(who, slot, block))
+                .await;
             res = result.unwrap_or(EthResponse::eth_unimplemented);
         }
         "eth_getTransactionCount" => {
@@ -134,7 +135,9 @@ pub async fn evm_process(
                     block = None;
                 }
             }
-            let result = evm.send(EthRequest::eth_getTransactionCount(who, block)).await;
+            let result = evm
+                .send(EthRequest::eth_getTransactionCount(who, block))
+                .await;
             res = result.unwrap_or(EthResponse::eth_unimplemented);
         }
         "eth_getCode" => {
