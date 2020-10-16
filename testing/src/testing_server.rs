@@ -60,8 +60,8 @@ pub async fn response_router(
     req: Request<Body>,
     tester: Recipient<TestRequest>,
     compiler: Recipient<CompilerRequest>,
-    evm: Recipient<EthRequest>,
-    me: Addr<TestingApi>,
+    _evm: Recipient<EthRequest>,
+    _me: Addr<TestingApi>,
 ) -> Result<Response<Body>> {
     match (req.method(), req.uri().path()) {
         (&Method::POST, "/compile") => compile_process(req, compiler).await,
@@ -123,7 +123,7 @@ pub async fn test_process(
 }
 
 pub async fn test_request(
-    req: Request<Body>,
+    _req: Request<Body>,
     tester: Recipient<TestRequest>,
 ) -> Result<Response<Body>> {
     let res = tester.send(TestRequest::Tests).await;

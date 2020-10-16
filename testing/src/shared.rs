@@ -2,10 +2,10 @@ use actix::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use crate::compiler::solc_types::SolcOutput;
-use service::server::*;
+
 use service::shared::*;
 #[allow(non_snake_case)]
-use service::EVM::*;
+
 
 pub enum TestRequest {
     Tests,

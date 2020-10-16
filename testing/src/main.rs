@@ -1,5 +1,5 @@
 use service::server::*;
-use service::shared::*;
+
 #[allow(non_snake_case)]
 use service::EVM::*;
 
@@ -14,19 +14,19 @@ pub mod tester;
 
 extern crate solc;
 // use compiler;
-use evm::executor::CallTrace;
-use hash;
-use std::collections::BTreeSet;
-use std::fs;
-use std::path::Path;
-use web3::types::*;
+
+
+
+
+
+
 
 #[actix_rt::main]
 async fn main() {
     // use std::time::Instant;
     // let now = Instant::now();
 
-    let (evm, api) = start_blockchain();
+    let (_evm, _api) = start_blockchain();
 
     // let mut solc_output = compiler::compile();
 

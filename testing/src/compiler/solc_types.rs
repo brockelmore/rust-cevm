@@ -3,17 +3,17 @@ extern crate serde;
 extern crate serde_json;
 extern crate simple_error;
 
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue};
 
 use ethabi_next::*;
 use evm::{backend::memory::TxReceipt, executor::CallTrace};
-use solc;
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
+
+
+
 use web3::types::{H160, U256};
 
 use tiny_keccak::Keccak;
@@ -353,7 +353,7 @@ impl SolcOutput {
 }
 
 pub fn to_contract_name(full: &str) -> &str {
-    let mut src_strs: Vec<&str> = full.rsplit(':').collect();
+    let src_strs: Vec<&str> = full.rsplit(':').collect();
     let src = src_strs.first().unwrap().clone();
     src
 }

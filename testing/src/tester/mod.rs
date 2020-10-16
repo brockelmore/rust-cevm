@@ -1,12 +1,12 @@
 use actix::prelude::*;
-use service::server::*;
+
 use service::shared::*;
 #[allow(non_snake_case)]
-use service::EVM::*;
+
 
 use evm::executor::CallTrace;
 
-use crate::shared::*;
+
 use crate::compiler::solc_types::*;
 use web3::types::H160;
 
@@ -28,7 +28,7 @@ impl Tester {
         let mut tests: HashMap<String, Vec<String>> = HashMap::new();
         for (src, contract) in self.compiled.contracts.iter() {
             if is_tester(src) {
-                for (name, func) in contract.abi.functions.iter() {
+                for (name, _func) in contract.abi.functions.iter() {
                     if is_test(&name) {
                         if let Some(curr_tests) = tests.get_mut(src) {
                             curr_tests.push(name.to_string());
@@ -46,8 +46,8 @@ impl Tester {
 
 
 pub fn is_tester(src: &str) -> bool {
-    let mut src_strs: Vec<&str> = src.rsplit(':').collect();
-    let mut file_name = src_strs.last().unwrap().clone();
+    let src_strs: Vec<&str> = src.rsplit(':').collect();
+    let file_name = src_strs.last().unwrap().clone();
     let src: Vec<&str> = file_name.rsplit('.').collect();
     src.iter().any(|c| *c == "t")
 }
@@ -57,8 +57,8 @@ pub fn is_test(src: &str) -> bool {
 }
 
 pub fn is_fail_test(src: &str) -> bool {
-    let mut src_strs: Vec<&str> = src.rsplit(':').collect();
-    let mut file_name = src_strs.last().unwrap().clone();
+    let src_strs: Vec<&str> = src.rsplit(':').collect();
+    let file_name = src_strs.last().unwrap().clone();
     let src: Vec<&str> = file_name.rsplit('.').collect();
     src.iter().any(|c| *c == "t")
 }

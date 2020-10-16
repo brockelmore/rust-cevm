@@ -21,7 +21,7 @@ use std::path::{Path};
 use web3::types::{H160};
 
 
-use solc::error::Error;
+
 pub mod solc_types;
 
 use crate::shared::*;
@@ -44,10 +44,10 @@ impl Actor for Compiler {
 impl Handler<CompilerRequest> for Compiler {
     type Result = CompilerResponse;
 
-    fn handle(&mut self, msg: CompilerRequest, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: CompilerRequest, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            CompilerRequest::Compile(input, out, opts) => {
-                let mut solc_output = self.compile(input, out);
+            CompilerRequest::Compile(input, out, _opts) => {
+                let solc_output = self.compile(input, out);
                 match solc_output {
                     Ok(solc_out) => {
                         self.tester.do_send(TestRequest::Solc(solc_out));
@@ -71,7 +71,7 @@ impl Compiler {
         match solc::compile_dir(input_dir, output_dir.clone()) {
             Err(e) => {
                 match e {
-                    solc::error::Error(a, b) => {
+                    solc::error::Error(a, _b) => {
                         return Err(a.to_string())
                     }
                 }
@@ -80,7 +80,7 @@ impl Compiler {
             _ => {}
         };
 
-        if let Ok(mut file) = fs::read_to_string(output_dir + "/combined.json") {
+        if let Ok(file) = fs::read_to_string(output_dir + "/combined.json") {
             if let Ok(mut json) = serde_json::from_str::<JsonValue>(&file) {
                 let mut solc_output = SolcOutput {
                     contracts: HashMap::new(),
