@@ -83,6 +83,7 @@ pub enum EthRequest {
     eth_getTransactionCount(H160, Option<U256>),
     eth_getCode(H160, Option<U256>),
     eth_sendTransaction(TransactionRequest, Option<Vec<String>>),
+    eth_tmpDeploy(TransactionRequest, Option<Vec<String>>),
     eth_sendRawTransaction(Vec<u8>),
     eth_call(TransactionRequest, Option<U256>),
     eth_getBlockByHash(H256, bool),

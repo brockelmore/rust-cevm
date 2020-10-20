@@ -24,6 +24,10 @@ pub struct StackAccount {
     pub storage: BTreeMap<H256, H256>,
     /// Storage. Not inserted values mean it is currently known, but not empty.
     pub original_storage: BTreeMap<H256, H256>,
+    /// Original code: incase code is destroyed
+    pub original_code: Option<Vec<u8>>,
+    /// Original balances
+    pub original_basic: Basic,
     /// Whether the storage in the database should be reset before storage
     /// values are applied.
     pub reset_storage: bool,
@@ -409,7 +413,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 
     /// Deconstruct the executor, return state to be applied.
     #[must_use]
-    pub fn deconstruct(
+    pub fn  deconstruct(
         self,
     ) -> (
         impl IntoIterator<Item = Apply<impl IntoIterator<Item = (H256, H256)>>>,
@@ -456,16 +460,57 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         (applies, logs, txs, self.created_contracts.clone())
     }
 
+    /// Deconstruct the executor, return state to be applied.
+    #[must_use]
+    pub fn  deconstruct_fork_only(
+        self,
+    ) -> (
+        impl IntoIterator<Item = Apply<impl IntoIterator<Item = (H256, H256)>>>,
+        impl IntoIterator<Item = Log>,
+        Vec<TxReceipt>,
+        BTreeSet<H160>,
+    ) {
+        let mut applies = Vec::<Apply<BTreeMap<H256, H256>>>::new();
+
+        for (address, account) in self.state {
+            if !self.created_contracts.contains(&address) {
+                let storage = account.original_storage.clone();
+                let basic = account.original_basic.clone();
+                let code = account.original_code.clone();
+
+                applies.push(Apply::Modify {
+                    address,
+                    basic,
+                    code,
+                    storage,
+                    reset_storage: account.reset_storage,
+                });
+            }
+        }
+
+        for address in self.deleted {
+            applies.push(Apply::Delete { address });
+        }
+
+        let logs = self.logs;
+        let txs = self.pending_txs;
+
+        (applies, logs, txs, self.created_contracts.clone())
+    }
+
     /// Get mutable account reference.
     pub fn account_mut(&mut self, address: H160) -> &mut StackAccount {
         if self.state.contains_key(&address) {
             self.state.get_mut(&address).unwrap()
         } else {
+            let b = self.backend.basic(address);
             let acct = StackAccount {
-                basic: self.backend.basic(address),
+                basic: b.clone(),
                 code: None,
                 storage: BTreeMap::new(),
                 original_storage: BTreeMap::new(),
+                original_code: None,
+                original_basic: b,
                 reset_storage: false,
                 reset_storage_backend: false,
             };
@@ -479,11 +524,14 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         if self.state.contains_key(&address) {
             self.state.get_mut(&address).unwrap().basic.nonce
         } else {
+            let b = self.backend.basic(address);
             let acct = StackAccount {
-                basic: self.backend.basic(address),
+                basic: b.clone(),
                 code: None,
                 storage: BTreeMap::new(),
                 original_storage: BTreeMap::new(),
+                original_code: None,
+                original_basic: b,
                 reset_storage: false,
                 reset_storage_backend: false,
             };
@@ -603,6 +651,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                     calltrace.addr = address;
                     calltrace.created = true;
                     calltrace.cost = substate.used_gas();
+                    calltrace.input = hex::encode(init_code);
                     calltrace.inner.append(&mut substate.call_trace);
                     let _ = self.merge_fail(substate, calltrace);
                     return Capture::Exit((ExitError::CreateCollision.into(), None, Vec::new()));
@@ -617,6 +666,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                     calltrace.addr = address;
                     calltrace.created = true;
                     calltrace.cost = substate.used_gas();
+                    calltrace.input = hex::encode(init_code);
                     calltrace.inner.append(&mut substate.call_trace);
                     let _ = self.merge_fail(substate, calltrace);
                     return Capture::Exit((ExitError::CreateCollision.into(), None, Vec::new()));
@@ -628,6 +678,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                 calltrace.addr = address;
                 calltrace.created = true;
                 calltrace.cost = substate.used_gas();
+                calltrace.input = hex::encode(init_code);
                 calltrace.inner.append(&mut substate.call_trace);
                 let _ = self.merge_fail(substate, calltrace);
                 return Capture::Exit((ExitError::CreateCollision.into(), None, Vec::new()));
@@ -654,6 +705,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                 calltrace.addr = address;
                 calltrace.created = true;
                 calltrace.cost = substate.used_gas();
+                calltrace.input = hex::encode(init_code);
                 calltrace.inner.append(&mut substate.call_trace);
                 let _ = self.merge_revert(substate, calltrace);
                 return Capture::Exit((ExitReason::Error(e), None, Vec::new()));
@@ -665,7 +717,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         }
 
         let mut runtime = Runtime::new(
-            Rc::new(init_code),
+            Rc::new(init_code.clone()),
             Rc::new(Vec::new()),
             context,
             self.config,
@@ -684,6 +736,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                         calltrace.created = true;
                         substate.gasometer.fail();
                         calltrace.cost = substate.used_gas();
+                        calltrace.input = hex::encode(init_code);
                         calltrace.output = hex::encode(runtime.machine.return_value());
                         calltrace.inner.append(&mut substate.call_trace);
                         let _ = self.merge_fail(substate, calltrace);
@@ -701,6 +754,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                         calltrace.addr = address;
                         calltrace.created = true;
                         calltrace.cost = substate.used_gas();
+                        calltrace.input = hex::encode(init_code);
                         calltrace.output = hex::encode(runtime.machine.return_value());
                         calltrace.inner.append(&mut substate.call_trace);
                         let e = self.merge_succeed(substate, calltrace);
@@ -708,13 +762,17 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                         if self.state.contains_key(&address) {
                             let acct = self.state.get_mut(&address).unwrap();
                             acct.code = Some(out);
+                            acct.original_code = acct.code.clone();
                             *acct = acct.clone();
                         } else {
+                            let b = self.backend.basic(address);
                             let acct = StackAccount {
-                                basic: self.backend.basic(address),
-                                code: Some(out),
+                                basic: b.clone(),
+                                code: Some(out.clone()),
                                 storage: BTreeMap::new(),
                                 original_storage: BTreeMap::new(),
+                                original_code: Some(out),
+                                original_basic: b,
                                 reset_storage: false,
                                 reset_storage_backend: false,
                             };
@@ -728,6 +786,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                         calltrace.addr = address;
                         calltrace.created = true;
                         calltrace.cost = substate.used_gas();
+                        calltrace.input = hex::encode(init_code);
                         calltrace.output = hex::encode(runtime.machine.return_value());
                         calltrace.inner.append(&mut substate.call_trace);
                         let _ = self.merge_fail(substate, calltrace);
@@ -741,6 +800,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                 calltrace.created = true;
                 substate.gasometer.fail();
                 calltrace.cost = substate.used_gas();
+                calltrace.input = hex::encode(init_code);
                 calltrace.output = hex::encode(runtime.machine.return_value());
                 calltrace.inner.append(&mut substate.call_trace);
                 let _ = self.merge_fail(substate, calltrace);
@@ -751,6 +811,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                 calltrace.addr = address;
                 calltrace.created = true;
                 calltrace.cost = substate.used_gas();
+                calltrace.input = hex::encode(init_code);
                 calltrace.output = hex::encode(runtime.machine.return_value());
                 calltrace.inner.append(&mut substate.call_trace);
                 let _ = self.merge_revert(substate, calltrace);
@@ -803,16 +864,20 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                     if self.state.contains_key(&who) {
                         let acct = self.state.get_mut(&who).unwrap();
                         acct.storage.insert(slot, val);
-                        acct.reset_storage_backend = true;
+                        acct.reset_storage_backend = false;
                         *acct = acct.clone();
                     } else {
+                        let b = self.backend.basic(who);
+                        let code = self.backend.code(who);
                         let mut acct = StackAccount {
-                            basic: self.backend.basic(who),
-                            code: Some(self.backend.code(who)),
+                            basic: b.clone(),
+                            code: Some(code.clone()),
                             storage: BTreeMap::new(),
                             original_storage: BTreeMap::new(),
+                            original_code: Some(code),
+                            original_basic: b,
                             reset_storage: false,
-                            reset_storage_backend: true,
+                            reset_storage_backend: false,
                         };
                         acct.storage.insert(slot, val);
                         self.state.insert(who, acct);
@@ -1006,11 +1071,14 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
         if self.state.contains_key(&address) {
             self.state.get_mut(&address).unwrap().basic.balance
         } else {
+            let b = self.backend.basic(address);
             let acct = StackAccount {
-                basic: self.backend.basic(address),
+                basic: b.clone(),
                 code: None,
                 storage: BTreeMap::new(),
                 original_storage: BTreeMap::new(),
+                original_code: None,
+                original_basic: b,
                 reset_storage: false,
                 reset_storage_backend: false,
             };
@@ -1029,14 +1097,19 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
                 U256::from(c.len())
             } else {
                 acct.code = Some(self.backend.code(address));
+                acct.original_code = acct.code.clone();
                 U256::from(acct.code.clone().unwrap().len())
             }
         } else {
+            let b = self.backend.basic(address);
+            let code = self.backend.code(address);
             let acct = StackAccount {
-                basic: self.backend.basic(address),
-                code: Some(self.backend.code(address)),
+                basic: b.clone(),
+                code: Some(code.clone()),
                 storage: BTreeMap::new(),
                 original_storage: BTreeMap::new(),
+                original_code: Some(code),
+                original_basic: b,
                 reset_storage: false,
                 reset_storage_backend: false,
             };
@@ -1063,11 +1136,15 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
                 H256::from_slice(Keccak256::digest(&acct.code.clone().unwrap()).as_slice())
             }
         } else {
+            let b = self.backend.basic(address);
+            let code = self.backend.code(address);
             let acct = StackAccount {
-                basic: self.backend.basic(address),
-                code: Some(self.backend.code(address)),
+                basic: b.clone(),
+                code: Some(code.clone()),
                 storage: BTreeMap::new(),
                 original_storage: BTreeMap::new(),
+                original_code: Some(code),
+                original_basic: b,
                 reset_storage: false,
                 reset_storage_backend: false,
             };
@@ -1083,14 +1160,19 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
                 c
             } else {
                 acct.code = Some(self.backend.code(address));
+                acct.original_code = acct.code.clone();
                 acct.code.clone().unwrap()
             }
         } else {
+            let b = self.backend.basic(address);
+            let code = self.backend.code(address);
             let acct = StackAccount {
-                basic: self.backend.basic(address),
-                code: Some(self.backend.code(address)),
+                basic: b.clone(),
+                code: Some(code.clone()),
                 storage: BTreeMap::new(),
                 original_storage: BTreeMap::new(),
+                original_code: Some(code),
+                original_basic: b,
                 reset_storage: false,
                 reset_storage_backend: false,
             };
@@ -1119,11 +1201,15 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
                 }
             }
         } else {
+            let b = self.backend.basic(address);
+            let code = self.backend.code(address);
             let mut acct = StackAccount {
-                basic: self.backend.basic(address),
-                code: Some(self.backend.code(address)),
+                basic: b.clone(),
+                code: Some(code.clone()),
                 storage: BTreeMap::new(),
                 original_storage: BTreeMap::new(),
+                original_code: Some(code),
+                original_basic: b,
                 reset_storage: false,
                 reset_storage_backend: false,
             };
@@ -1154,11 +1240,15 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
             // this contract was created by self (this tx), dont call backend for it
             H256::default()
         } else {
+            let b = self.backend.basic(address);
+            let code = self.backend.code(address);
             let mut acct = StackAccount {
-                basic: self.backend.basic(address),
-                code: Some(self.backend.code(address)),
+                basic: b.clone(),
+                code: Some(code.clone()),
                 storage: BTreeMap::new(),
                 original_storage: BTreeMap::new(),
+                original_code: Some(code),
+                original_basic: b,
                 reset_storage: false,
                 reset_storage_backend: false,
             };

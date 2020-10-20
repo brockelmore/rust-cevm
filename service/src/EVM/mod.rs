@@ -194,7 +194,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                 let mut with_return = false;
                 let mut with_receipt = false;
                 let mut with_trace = false;
-
+                println!("options: {:?}", options);
                 if let Some(opts) = options {
                     for option in opts.into_iter() {
                         match &*option {
@@ -209,6 +209,9 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                             }
                             "trace" => {
                                 with_trace = true;
+                            }
+                            "no_commit" => {
+                                commit = false;
                             }
                             _ => {}
                         }
@@ -262,7 +265,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                         gas_price: tx.gas_price.unwrap(),
                         gas: tx.gas.unwrap(),
                         action,
-                        value: tx.value.unwrap(),
+                        value: tx.value.unwrap_or(U256::zero()),
                         data: raw,
                     },
                     v: 0,
@@ -296,6 +299,38 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                 commit = false;
                 EthResponse::eth_call(data)
             }
+            EthRequest::eth_tmpDeploy(tx, _options) => {
+                let action = crate::shared::Action::Create;
+                let Bytes(raw) = tx.data.unwrap();
+                let selftx = UnverifiedTransaction {
+                    unsigned: SelfTransaction {
+                        nonce: tx.nonce.unwrap_or(exec.nonce(tx.from)),
+                        gas_price: tx.gas_price.unwrap(),
+                        gas: tx.gas.unwrap(),
+                        action,
+                        value: tx.value.unwrap_or(U256::zero()),
+                        data: raw,
+                    },
+                    v: 0,
+                    r: U256::one(),
+                    s: U256::one(),
+                    hash: H256::zero(),
+                };
+                let selftx = selftx.compute_hash();
+                let hash = selftx.hash;
+                let data;
+                let (_r, d, _tr) = exec.transact_create(
+                    hash,
+                    tx.from,
+                    tx.value.unwrap_or(U256::zero()), // value: 0 eth
+                    selftx.unsigned.data,             // data
+                    tx.gas.unwrap().as_usize(),       // gas_limit
+                );
+                let addr = d.unwrap();
+                data = exec.code(addr);
+                commit = false;
+                EthResponse::eth_call(data)
+            }
             // EthRequest::eth_getBlockByHash(hash, txs) => {
             //     return EthResponse::eth_getBlockByHash;
             // }
@@ -318,6 +353,17 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
 
         if commit {
             let (applies, logs, recs, created) = exec.deconstruct();
+            self.backend.apply(
+                self.backend.vicinity.block_number,
+                applies,
+                logs,
+                recs,
+                created,
+                false,
+            );
+        } else {
+            // We dont want to destroy forked info even if we dont commit others
+            let (applies, logs, recs, created) = exec.deconstruct_fork_only();
             self.backend.apply(
                 self.backend.vicinity.block_number,
                 applies,

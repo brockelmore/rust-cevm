@@ -1,29 +1,49 @@
+use crate::compiler::solc_types::SolcOutput;
 use actix::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::compiler::solc_types::SolcOutput;
+use web3::types::{H160, H256};
+use crate::tester::tester_types::*;
 
 use service::shared::*;
+use evm::backend::TxReceipt;
+
 #[allow(non_snake_case)]
-
-
+#[derive(Message)]
+#[rtype(result = "Result<TestResponse, ()>")]
 pub enum TestRequest {
     Tests,
-    Test(String, String),
+    Test(String, String, Option<TestOptions>),
     Solc(SolcOutput),
 }
 
-impl Message for TestRequest {
-    type Result = TestResponse;
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+pub struct TestOptions {
+    pub sender: Option<H160>,
+    pub testerIsEOA: Option<bool>,
 }
 
-#[derive(MessageResponse, Serialize, Deserialize)]
+// impl Message for TestRequest {
+//     type Result = ResponseActFuture<Self, std::result::Result<TestResponse, ()>>;
+// }
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+pub struct TestEVMResponse {
+    pub hash: H256,
+    pub data: Option<String>,
+    pub logs: Option<Vec<SourcedLog>>,
+    pub recs: Option<Vec<TxReceipt>>,
+    pub trace: Option<Vec<Box<SourceTrace>>>,
+}
+
+#[derive(MessageResponse, Serialize, Deserialize, Debug)]
 pub enum TestResponse {
     Tests(HashMap<String, Vec<String>>),
-    Test(EthResponse),
+    Test(Vec<TestEVMResponse>),
     UnknownError,
+    Success,
+    Failure(String),
 }
-
 
 pub struct OutputComponents {
     pub ast: Option<bool>,
@@ -52,6 +72,7 @@ pub struct CompileOptions {
 
 pub enum CompilerRequest {
     Compile(String, String, Option<CompileOptions>),
+    LoadCompiled(String),
 }
 
 impl Message for CompilerRequest {
@@ -62,5 +83,5 @@ impl Message for CompilerRequest {
 pub enum CompilerResponse {
     Success,
     Failure(String),
-    UnknownError
+    UnknownError,
 }

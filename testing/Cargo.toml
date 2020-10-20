@@ -23,5 +23,14 @@ evm = { path = "../", features = ["local", "std", "with-serde"] }
 hash = { package = "keccak-hash", version = "0.5" }
 tiny-keccak = "1.4"
 bytes = "0.5"
+futures = "0.3.6"
+hyper-staticfile = "0.5.3"
+percent-encoding = "2.1.0"
+log = "0.4.8"
+mime = "0.3.14"
+mime_guess = "2.0.1"
+tokio = { version = "0.3.0", default-features = false, features = ["fs", "rt"]}
+tokio-util = { version = "0.4.0", default-features = false, features = ["codec"] }
+flate2 = "1.0"
 
 [dev-dependencies]
