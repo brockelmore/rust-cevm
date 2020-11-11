@@ -275,14 +275,7 @@ impl ApplyBackend for ForkMemoryBackendOwned {
                 } => {
                     let is_empty = {
                         if tip {
-                            let mut account;
-                            if self.state.contains_key(&address) {
-                                account = self.state.get_mut(&address).unwrap();
-                            } else {
-                                let acct = MemoryAccount::default();
-                                self.state.insert(address, acct);
-                                account = self.state.get_mut(&address).unwrap();
-                            }
+                            let mut account = self.state.entry(address).or_insert_with(MemoryAccount::default);
 
                             if created_contracts.contains(&address) {
                                 account.created = true;
@@ -327,8 +320,8 @@ impl ApplyBackend for ForkMemoryBackendOwned {
                             let archive = self
                                 .archive_state
                                 .entry(block)
-                                .or_insert(Default::default());
-                            let account = archive.entry(address).or_insert(Default::default());
+                                .or_insert_with(Default::default);
+                            let account = archive.entry(address).or_insert_with(Default::default);
                             account.balance = basic.balance;
                             account.nonce = basic.nonce;
                             if let Some(code) = code {
@@ -374,7 +367,7 @@ impl ApplyBackend for ForkMemoryBackendOwned {
             }
         }
 
-        let ls = self.logs.entry(block).or_insert(Vec::new());
+        let ls = self.logs.entry(block).or_insert_with(Vec::new);
         let mut f = ls.clone();
         for log in logs {
             f.push(log);
