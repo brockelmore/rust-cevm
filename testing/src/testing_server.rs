@@ -7,7 +7,7 @@ use bytes::buf::BufExt;
 use flate2::{write::ZlibEncoder, Compression};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Method, Request, Response, Server, StatusCode, Uri};
-use service::shared::{EthRequest, EthResponse};
+use service::shared::{EthRequest};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
@@ -74,7 +74,7 @@ pub async fn response_router(
         (&Method::POST, "/test") => test_process(req, tester).await,
         (&Method::POST, "/sim") => sim_process(req, tester).await,
         (&Method::GET, "/tests") => test_request(req, tester).await,
-        (&Method::GET, path) => home_request(req).await,
+        (&Method::GET, _path) => home_request(req).await,
         _ => {
             println!("not found, {:?}", req);
             // Return 404 not found response.

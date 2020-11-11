@@ -2,7 +2,7 @@ use service::server::*;
 
 #[allow(non_snake_case)]
 use service::{
-    shared::{EthRequest, EthResponse},
+    shared::{EthRequest},
     EVM::*,
 };
 
@@ -13,7 +13,7 @@ use std::time::Duration;
 use tester::Tester;
 use testing_server::TestingApi;
 
-use shared::CompilerRequest;
+
 use std::collections::HashMap;
 use web3::types::H160;
 
@@ -26,8 +26,8 @@ extern crate solc;
 
 #[actix_rt::main]
 async fn main() {
-    let (evm, api) = start_blockchain();
-    let (compiler, tester, testing_api) = start_compiler_and_tester(evm.clone().recipient());
+    let (evm, _api) = start_blockchain();
+    let (_compiler, _tester, _testing_api) = start_compiler_and_tester(evm.clone().recipient());
 
     loop {
         delay_for(Duration::from_secs(1000)).await;
@@ -65,7 +65,7 @@ fn start_compiler_and_tester(
     .start();
 
     let api = TestingApi {
-        evm: evm.clone(),
+        evm,
         compiler: compiler.clone().recipient(),
         tester: tester.clone().recipient(),
     }

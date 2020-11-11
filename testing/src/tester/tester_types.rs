@@ -1,6 +1,6 @@
 use ethabi_next::*;
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+
 use std::collections::HashMap;
 use std::fmt;
 use tiny_keccak::Keccak;
@@ -14,7 +14,7 @@ pub struct BetterH160(H160);
 
 impl fmt::Debug for BetterH160 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", hex::encode(self.0.clone()))
+        write!(f, "{:?}", hex::encode(self.0))
     }
 }
 
@@ -223,7 +223,7 @@ pub fn parse_error(output: String) -> Vec<Token> {
                 .decode_output(&hex::decode(&output[8..]).unwrap())
                 .unwrap();
         } else {
-            tokens = vec![Token::Bytes(hex::decode(output.clone()).unwrap())];
+            tokens = vec![Token::Bytes(hex::decode(output).unwrap())];
         }
     }
     tokens

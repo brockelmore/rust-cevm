@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use web3::types::{H160, H256};
 
 use evm::backend::TxReceipt;
-use service::shared::*;
+
 
 #[allow(non_snake_case)]
 #[derive(Message)]

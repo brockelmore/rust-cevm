@@ -5,7 +5,7 @@ use evm::{backend::memory::TxReceipt, executor::CallTrace};
 use service::shared::*;
 use web3::types::{Bytes, TransactionRequest, H160, U256};
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use crate::shared::*;
 // use ethabi_next::*;
@@ -54,10 +54,7 @@ impl Tester {
 
     pub fn is_deployed(&self, src: &str) -> bool {
         match self.contract_addresses_rev.get(src) {
-            Some(maybe_addr) => match maybe_addr {
-                Some(addr) => true,
-                _ => false,
-            },
+            Some(maybe_addr) => matches!(maybe_addr, Some(_addr)),
             _ => false,
         }
     }
@@ -131,7 +128,7 @@ impl Tester {
             to: Some(contract),
             gas: Some(U256::from(50_000_000)),
             gas_price: Some(U256::from(1)),
-            data: Some(Bytes(short_signature("setUp", &vec![]).to_vec())),
+            data: Some(Bytes(short_signature("setUp", &[]).to_vec())),
             value: None,
             nonce: None,
             condition: None,
@@ -389,7 +386,7 @@ impl TestInfo {
 
                             traces.push(SourceTrace {
                                 name: src.to_string(),
-                                address: t.addr.clone(),
+                                address: t.addr,
                                 success: t.success,
                                 created: t.created,
                                 function: f.name.clone(),
@@ -417,7 +414,7 @@ impl TestInfo {
 
                         traces.push(SourceTrace {
                             name: src.to_string(),
-                            address: t.addr.clone(),
+                            address: t.addr,
                             success: t.success,
                             created: t.created,
                             function: func_name.clone(),
@@ -442,7 +439,7 @@ impl TestInfo {
                     }
                     traces.push(SourceTrace {
                         name: String::new(),
-                        address: t.addr.clone(),
+                        address: t.addr,
                         success: t.success,
                         created: t.created,
                         function: func_name.clone(),
@@ -467,7 +464,7 @@ impl TestInfo {
                 }
                 traces.push(SourceTrace {
                     name: String::new(),
-                    address: t.addr.clone(),
+                    address: t.addr,
                     success: t.success,
                     created: t.created,
                     function: func_name.clone(),
@@ -508,7 +505,7 @@ impl TestInfo {
                     hash,
                     data: d,
                     logs: l,
-                    recs: recs,
+                    recs,
                     trace: t,
                 }
             }
@@ -523,11 +520,11 @@ pub fn flatten_call_addrs(
 ) -> BTreeMap<H160, Option<String>> {
     let mut addrs = BTreeMap::new();
     for calltrace in calltraces.iter() {
-        if !contract_addresses.contains_key(&calltrace.addr).clone() {
+        if !contract_addresses.contains_key(&calltrace.addr) {
             if calltrace.created {
-                addrs.insert(calltrace.addr.clone(), Some(calltrace.input.clone()));
+                addrs.insert(calltrace.addr, Some(calltrace.input.clone()));
             } else {
-                addrs.insert(calltrace.addr.clone(), None);
+                addrs.insert(calltrace.addr, None);
             }
         }
         addrs.append(&mut flatten_call_addrs(
@@ -541,7 +538,7 @@ pub fn flatten_call_addrs(
 impl Handler<TestRequest> for Tester {
     type Result = ResponseActFuture<Self, Result<TestResponse, ()>>;
 
-    fn handle(&mut self, msg: TestRequest, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: TestRequest, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             TestRequest::Tests => Box::pin(
                 async {}
@@ -553,7 +550,7 @@ impl Handler<TestRequest> for Tester {
                     src: String::new(),
                     test: String::new(),
                     testerIsEOA: false,
-                    sender: self.sender.clone(),
+                    sender: self.sender,
                     contract: H160::zero(),
                     evm: self.evm.clone(),
                     bytecode: None,
@@ -602,15 +599,14 @@ impl Handler<TestRequest> for Tester {
                         .contract_addresses_rev
                         .get(&src)
                         .unwrap()
-                        .unwrap()
-                        .clone();
+                        .unwrap();
                 }
 
                 let t_info = TestInfo {
                     src: src.clone(),
                     test: test.clone(),
                     testerIsEOA: isEOA,
-                    sender: self.sender.clone(),
+                    sender: self.sender,
                     contract,
                     evm: self.evm.clone(),
                     bytecode,
@@ -667,9 +663,9 @@ impl Handler<TestRequest> for Tester {
                             }
                             let call_addrs = flatten_call_addrs(
                                 &t_info.contract_addresses,
-                                deploy_resp.clone().tx_trace().unwrap().clone(),
+                                deploy_resp.clone().tx_trace().unwrap(),
                             );
-                            for (addr, maybe_in_code) in call_addrs.iter() {
+                            for (addr, _maybe_in_code) in call_addrs.iter() {
                                 if !t_info.contract_addresses.contains_key(addr) {
                                     let code = Self::get_code(*addr, t_info.evm.clone()).await;
                                     let code = hex::encode(code.code().unwrap());
@@ -690,14 +686,13 @@ impl Handler<TestRequest> for Tester {
                                 .contract_addresses_rev
                                 .get(&t_info.src)
                                 .unwrap()
-                                .unwrap()
-                                .clone();
+                                .unwrap();
                             t_info.results.push(t_info.from_eth_resp(deploy_resp));
                         }
                         let mut setup = None;
                         if !t_info.is_setup {
                             t_info.setup_tests.insert(t_info.src.clone(), true);
-                            let mut sender = t_info.sender.clone();
+                            let mut sender = t_info.sender;
                             if t_info.testerIsEOA {
                                 sender = t_info.contract;
                             }
@@ -738,9 +733,9 @@ impl Handler<TestRequest> for Tester {
                             }
                             let call_addrs = flatten_call_addrs(
                                 &t_info.contract_addresses,
-                                setup_resp.clone().tx_trace().unwrap().clone(),
+                                setup_resp.clone().tx_trace().unwrap(),
                             );
-                            for (addr, maybe_in_code) in call_addrs.iter() {
+                            for (addr, _maybe_in_code) in call_addrs.iter() {
                                 if !t_info.contract_addresses.contains_key(addr) {
                                     let code = Self::get_code(*addr, t_info.evm.clone()).await;
                                     let code = hex::encode(code.code().unwrap());
@@ -767,10 +762,10 @@ impl Handler<TestRequest> for Tester {
                             .abi
                             .function(&test)
                             .unwrap()
-                            .encode_input(&vec![])
+                            .encode_input(&[])
                             .unwrap();
 
-                        let mut sender = t_info.sender.clone();
+                        let mut sender = t_info.sender;
                         if t_info.testerIsEOA {
                             sender = t_info.contract;
                         }
@@ -778,15 +773,15 @@ impl Handler<TestRequest> for Tester {
                             Self::test(sender, input, t_info.contract, t_info.evm.clone()).await;
                         let call_addrs = flatten_call_addrs(
                             &t_info.contract_addresses,
-                            test_res.clone().tx_trace().unwrap().clone(),
+                            test_res.clone().tx_trace().unwrap(),
                         );
                         for (addr, maybe_in_code) in call_addrs.iter() {
                             if !t_info.contract_addresses.contains_key(addr) {
                                 let code = Self::get_code(*addr, t_info.evm.clone()).await;
                                 let mut code = hex::encode(code.code().unwrap());
-                                if code.len() == 0 {
+                                if code.is_empty() {
                                     if let Some(in_code) = maybe_in_code {
-                                        if in_code.len() > 0 {
+                                        if !in_code.is_empty() {
                                             let dbytes = hex::decode(in_code).unwrap();
                                             let deployed_bytecode = Self::temp_deploy(
                                                 t_info.sender,
@@ -883,7 +878,7 @@ impl Handler<TestRequest> for Tester {
                     act.setup_tests = HashMap::new();
                     act.sigs = HashMap::new();
                     for (_src, contract) in act.compiled.contracts.iter() {
-                        for (name, funcs) in contract.abi.functions.iter() {
+                        for (_name, funcs) in contract.abi.functions.iter() {
                             for f in funcs.iter() {
                                 let params: Vec<ParamType> =
                                     f.inputs.iter().map(|p| p.kind.clone()).collect();
@@ -891,7 +886,7 @@ impl Handler<TestRequest> for Tester {
                                 act.sigs.insert(sig, f.name.clone());
                             }
                         }
-                        for (name, events) in contract.abi.events.iter() {
+                        for (_name, events) in contract.abi.events.iter() {
                             for e in events.iter() {
                                 act.sigs.insert(hex::encode(e.signature()), e.name.clone());
                             }
