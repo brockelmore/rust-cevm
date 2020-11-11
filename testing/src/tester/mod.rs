@@ -351,7 +351,7 @@ impl TestInfo {
         ls
     }
 
-    pub fn parse_call_trace(&self, trace: Vec<Box<CallTrace>>) -> Vec<Box<SourceTrace>> {
+    pub fn parse_call_trace(&self, trace: Vec<CallTrace>) -> Vec<SourceTrace> {
         let mut traces = Vec::with_capacity(trace.len());
         for t in trace.iter() {
             let mut out_tokens;
@@ -387,7 +387,7 @@ impl TestInfo {
                                 tso.push(BetterToken::from(t.clone()));
                             }
 
-                            traces.push(Box::new(SourceTrace {
+                            traces.push(SourceTrace {
                                 name: src.to_string(),
                                 address: t.addr.clone(),
                                 success: t.success,
@@ -398,7 +398,7 @@ impl TestInfo {
                                 output: TokensOrString::Tokens(tso),
                                 logs: self.parse_events(t.logs.clone()),
                                 inner: self.parse_call_trace(t.inner.clone()),
-                            }));
+                            });
                             found = true;
                         }
                     }
@@ -415,7 +415,7 @@ impl TestInfo {
                             out = TokensOrString::String(t.output.clone());
                         }
 
-                        traces.push(Box::new(SourceTrace {
+                        traces.push(SourceTrace {
                             name: src.to_string(),
                             address: t.addr.clone(),
                             success: t.success,
@@ -426,7 +426,7 @@ impl TestInfo {
                             output: out,
                             logs: self.parse_events(t.logs.clone()),
                             inner: self.parse_call_trace(t.inner.clone()),
-                        }));
+                        });
                     }
                 } else {
                     let out;
@@ -440,7 +440,7 @@ impl TestInfo {
                     } else {
                         out = TokensOrString::String(t.output.clone());
                     }
-                    traces.push(Box::new(SourceTrace {
+                    traces.push(SourceTrace {
                         name: String::new(),
                         address: t.addr.clone(),
                         success: t.success,
@@ -451,7 +451,7 @@ impl TestInfo {
                         output: out,
                         logs: self.parse_events(t.logs.clone()),
                         inner: self.parse_call_trace(t.inner.clone()),
-                    }));
+                    });
                 }
             } else {
                 let out;
@@ -465,7 +465,7 @@ impl TestInfo {
                 } else {
                     out = TokensOrString::String(t.output.clone());
                 }
-                traces.push(Box::new(SourceTrace {
+                traces.push(SourceTrace {
                     name: String::new(),
                     address: t.addr.clone(),
                     success: t.success,
@@ -476,7 +476,7 @@ impl TestInfo {
                     output: out,
                     logs: self.parse_events(t.logs.clone()),
                     inner: self.parse_call_trace(t.inner.clone()),
-                }));
+                });
             }
         }
         traces
@@ -519,7 +519,7 @@ impl TestInfo {
 
 pub fn flatten_call_addrs(
     contract_addresses: &HashMap<H160, Option<String>>,
-    calltraces: Vec<Box<CallTrace>>,
+    calltraces: Vec<CallTrace>,
 ) -> BTreeMap<H160, Option<String>> {
     let mut addrs = BTreeMap::new();
     for calltrace in calltraces.iter() {

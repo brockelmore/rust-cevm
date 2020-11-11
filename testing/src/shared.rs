@@ -34,7 +34,7 @@ pub struct TestEVMResponse {
     pub data: Option<String>,
     pub logs: Option<Vec<SourcedLog>>,
     pub recs: Option<Vec<TxReceipt>>,
-    pub trace: Option<Vec<Box<SourceTrace>>>,
+    pub trace: Option<Vec<SourceTrace>>,
 }
 
 #[derive(MessageResponse, Serialize, Deserialize, Debug)]

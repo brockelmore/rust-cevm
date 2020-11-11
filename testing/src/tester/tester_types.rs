@@ -137,7 +137,7 @@ pub struct SourceTrace {
     pub cost: usize,
     pub output: TokensOrString,
     pub logs: Vec<SourcedLog>,
-    pub inner: Vec<Box<SourceTrace>>,
+    pub inner: Vec<SourceTrace>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -232,10 +232,10 @@ pub fn parse_error(output: String) -> Vec<Token> {
 #[derive(Debug)]
 pub struct ABIString {
     pub core: String,
-    pub other: Vec<Box<ABIString>>,
+    pub other: Vec<ABIString>,
 }
 
-pub fn flatten_tokens_to_strings(tokens: Vec<Token>) -> Vec<Box<ABIString>> {
+pub fn flatten_tokens_to_strings(tokens: Vec<Token>) -> Vec<ABIString> {
     let mut as_strings = Vec::new();
     for token in tokens.iter() {
         let mut tmp = ABIString {
@@ -278,7 +278,7 @@ pub fn flatten_tokens_to_strings(tokens: Vec<Token>) -> Vec<Box<ABIString>> {
                 tmp.other = flatten_tokens_to_strings(ts.to_vec());
             }
         }
-        as_strings.push(Box::new(tmp));
+        as_strings.push(tmp);
     }
     as_strings
 }
