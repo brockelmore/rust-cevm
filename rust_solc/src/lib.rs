@@ -151,7 +151,7 @@ pub fn solidity_file_paths<T: AsRef<Path>>(directory: T) -> std::io::Result<Vec<
             results.extend(solidity_file_paths(path)?);
         } else if let Some(extension) = path.extension().map(|x| x.to_os_string()) {
             if extension.as_os_str() == "sol" {
-                let srcdir = PathBuf::from(path);
+                let srcdir = path;
                 results.push(fs::canonicalize(&srcdir)?);
             }
         }
