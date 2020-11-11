@@ -57,12 +57,11 @@ pub struct CallTrace {
     /// Logs
     pub logs: Vec<Log>,
     /// inner calls
-    pub inner: Vec<CallTrace>,
+    pub inner: Vec<Box<CallTrace>>,
 }
 
 /// Stack-based executor.
 #[derive(Clone)]
-#[allow(clippy::type_complexity)]
 pub struct StackExecutor<'backend, 'config, B> {
     /// Backend for data
     pub backend: &'backend B,
@@ -94,7 +93,7 @@ pub struct StackExecutor<'backend, 'config, B> {
     /// created contracts
     pub created_contracts: BTreeSet<H160>,
     /// Call trace
-    pub call_trace: Vec<CallTrace>,
+    pub call_trace: Vec<Box<CallTrace>>,
 }
 
 #[allow(clippy::type_complexity)]
@@ -113,7 +112,6 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
     }
 
     /// Create a new stack-based executor with given precompiles.
-    #[allow(clippy::type_complexity)]
     pub fn new_with_precompile(
         backend: &'backend B,
         gas_limit: usize,
@@ -191,7 +189,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
         calltrace.logs = substate.logs.clone();
-        self.call_trace.push(calltrace);
+        self.call_trace.push(Box::new(calltrace));
         self.logs.append(&mut substate.logs);
         self.deleted.append(&mut substate.deleted);
         for cc in substate.created_contracts.into_iter() {
@@ -213,7 +211,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
         calltrace.logs = substate.logs.clone();
-        self.call_trace.push(calltrace);
+        self.call_trace.push(Box::new(calltrace));
         self.logs.append(&mut substate.logs);
         self.tmp_bn = substate.tmp_bn;
         self.tmp_timestamp = substate.tmp_timestamp;
@@ -228,7 +226,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
         calltrace.logs = substate.logs.clone();
-        self.call_trace.push(calltrace);
+        self.call_trace.push(Box::new(calltrace));
         self.tmp_bn = substate.tmp_bn;
         self.tmp_timestamp = substate.tmp_timestamp;
         self.logs.append(&mut substate.logs);
@@ -244,7 +242,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         value: U256,
         init_code: Vec<u8>,
         gas_limit: usize,
-    ) -> (ExitReason, Option<H160>, Vec<CallTrace>) {
+    ) -> (ExitReason, Option<H160>, Vec<Box<CallTrace>>) {
         let transaction_cost = gasometer::create_transaction_cost(&init_code);
         match self.gasometer.record_transaction(transaction_cost) {
             Ok(()) => (),
@@ -302,7 +300,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         init_code: Vec<u8>,
         salt: H256,
         gas_limit: usize,
-    ) -> (ExitReason, Option<H160>, Vec<CallTrace>) {
+    ) -> (ExitReason, Option<H160>, Vec<Box<CallTrace>>) {
         let transaction_cost = gasometer::create_transaction_cost(&init_code);
         match self.gasometer.record_transaction(transaction_cost) {
             Ok(()) => (),
@@ -340,7 +338,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         value: U256,
         data: Vec<u8>,
         gas_limit: usize,
-    ) -> (ExitReason, Vec<u8>, Vec<CallTrace>) {
+    ) -> (ExitReason, Vec<u8>, Vec<Box<CallTrace>>) {
         let transaction_cost = gasometer::call_transaction_cost(&data);
         match self.gasometer.record_transaction(transaction_cost) {
             Ok(()) => (),

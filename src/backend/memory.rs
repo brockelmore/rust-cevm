@@ -160,7 +160,7 @@ impl<'vicinity> Backend for MemoryBackend<'vicinity> {
         self.state
             .get(&address)
             .map(|v| H256::from_slice(Keccak256::digest(&v.code).as_slice()))
-            .unwrap_or_else(|| H256::from_slice(Keccak256::digest(&[]).as_slice()))
+            .unwrap_or(H256::from_slice(Keccak256::digest(&[]).as_slice()))
     }
 
     fn code_size(&self, address: H160) -> usize {
@@ -276,8 +276,8 @@ impl<'vicinity> ApplyBackend for MemoryBackend<'vicinity> {
                             let archive = self
                                 .archive_state
                                 .entry(block)
-                                .or_insert_with(Default::default);
-                            let account = archive.entry(address).or_insert_with(Default::default);
+                                .or_insert(Default::default());
+                            let account = archive.entry(address).or_insert(Default::default());
                             account.balance = basic.balance;
                             account.nonce = basic.nonce;
                             if let Some(code) = code {
@@ -323,7 +323,7 @@ impl<'vicinity> ApplyBackend for MemoryBackend<'vicinity> {
             }
         }
 
-        let ls = self.logs.entry(block).or_insert_with(Vec::new);
+        let ls = self.logs.entry(block).or_insert(Vec::new());
         let mut f = ls.clone();
         for log in logs {
             f.push(log);
