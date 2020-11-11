@@ -1,5 +1,5 @@
-use evm_core::{Capture, ExitSucceed, Machine};
-use primitive_types::*;
+use evm_core::{Machine};
+
 use std::rc::Rc;
 
 macro_rules! ret_test {
