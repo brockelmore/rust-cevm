@@ -177,8 +177,7 @@ impl<'vicinity> Backend for MemoryBackend<'vicinity> {
     fn storage(&self, address: H160, index: H256) -> H256 {
         self.state
             .get(&address)
-            .map(|v| v.storage.get(&index).cloned().unwrap_or_default())
-            .unwrap_or(H256::default())
+            .map(|v| v.storage.get(&index).cloned().unwrap_or_default()).unwrap_or_default()
     }
 
     fn tx_receipt(&self, hash: H256) -> TxReceipt {
