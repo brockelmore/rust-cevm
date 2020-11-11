@@ -44,6 +44,7 @@ impl<'vicinity> ForkMemoryBackend<'vicinity> {
 	}
 }
 
+// For each, either use config, existing backend, or provider
 impl<'vicinity> Backend for ForkMemoryBackend<'vicinity> {
 	fn gas_price(&self) -> U256 { self.vicinity.gas_price }
 	fn origin(&self) -> H160 { self.vicinity.origin }
@@ -138,6 +139,7 @@ impl<'vicinity> Backend for ForkMemoryBackend<'vicinity> {
     }
 }
 
+// gets a list of changes to make to the backend data store
 impl<'vicinity> ApplyBackend for ForkMemoryBackend<'vicinity> {
 	fn apply<A, I, L>(
 		&mut self,
@@ -156,7 +158,6 @@ impl<'vicinity> ApplyBackend for ForkMemoryBackend<'vicinity> {
 		if block == self.local_block_num {
 			tip = true;
 		}
-		println!("tip: {:?}, {:?}", block, self.local_block_num);
 		for apply in values {
 			match apply {
 				Apply::Modify {
