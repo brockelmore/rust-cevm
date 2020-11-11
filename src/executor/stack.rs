@@ -185,9 +185,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
     }
 
     /// Merge a substate executor that succeeded.
-    pub fn merge_succeed<'obackend, 'oconfig, OB>(
+    pub fn merge_succeed<OB>(
         &mut self,
-        mut substate: StackExecutor<'obackend, 'oconfig, OB>,
+        mut substate: StackExecutor<'_, '_, OB>,
         mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
         calltrace.logs = substate.logs.clone();
@@ -207,9 +207,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
     }
 
     /// Merge a substate executor that reverted.
-    pub fn merge_revert<'obackend, 'oconfig, OB>(
+    pub fn merge_revert<OB>(
         &mut self,
-        mut substate: StackExecutor<'obackend, 'oconfig, OB>,
+        mut substate: StackExecutor<'_, '_, OB>,
         mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
         calltrace.logs = substate.logs.clone();
@@ -222,9 +222,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
     }
 
     /// Merge a substate executor that failed.
-    pub fn merge_fail<'obackend, 'oconfig, OB>(
+    pub fn merge_fail<OB>(
         &mut self,
-        mut substate: StackExecutor<'obackend, 'oconfig, OB>,
+        mut substate: StackExecutor<'_, '_, OB>,
         mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
         calltrace.logs = substate.logs.clone();
