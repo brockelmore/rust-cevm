@@ -90,6 +90,9 @@ pub enum EthRequest {
     eth_getBlockByNumber(U256, bool),
     eth_getTransactionByHash(H256),
     eth_getTransactionReceipt(H256),
+    eth_getLogs(Option<U256>, Option<U256>, Vec<H160>, Vec<H256>),
+    eth_chainId,
+    eth_sim(H256, bool, Option<Vec<String>>),
 }
 
 #[derive(MessageResponse, Serialize, Deserialize, Debug, Clone)]
@@ -106,6 +109,11 @@ pub enum EthResponse {
     eth_getBlockByNumber(Block),
     eth_getTransactionByHash(TxReceipt),
     eth_getTransactionReceipt(TxReceipt),
+    eth_getBlock(
+        Option<web3::types::Block<web3::types::H256>>,
+        Option<web3::types::Block<web3::types::Transaction>>,
+    ),
+    eth_chainId(U256),
     eth_sendTransaction {
         hash: H256,
         data: Option<Vec<u8>>,
@@ -113,6 +121,7 @@ pub enum EthResponse {
         recs: Option<Vec<TxReceipt>>,
         trace: Option<Vec<Box<CallTrace>>>,
     },
+    eth_getLogs(Vec<web3::types::Log>),
     eth_unimplemented,
 }
 
@@ -132,6 +141,12 @@ impl EthResponse {
     pub fn balance(self) -> Option<U256> {
         match self {
             EthResponse::eth_getBalance(bal) => Some(bal),
+            _ => None,
+        }
+    }
+    pub fn chainId(self) -> Option<U256> {
+        match self {
+            EthResponse::eth_chainId(id) => Some(id),
             _ => None,
         }
     }
@@ -156,6 +171,25 @@ impl EthResponse {
     pub fn tx_hash(self) -> Option<H256> {
         match self {
             EthResponse::eth_sendRawTransaction(hash) => Some(hash),
+            EthResponse::eth_sendTransaction {
+                hash,
+                data,
+                logs,
+                recs,
+                trace,
+            } => Some(hash),
+            _ => None,
+        }
+    }
+    pub fn block_txhashes(self) -> Option<web3::types::Block<web3::types::H256>> {
+        match self {
+            EthResponse::eth_getBlock(notxs, txs) => notxs,
+            _ => None,
+        }
+    }
+    pub fn block_txs(self) -> Option<web3::types::Block<web3::types::Transaction>> {
+        match self {
+            EthResponse::eth_getBlock(notxs, txs) => txs,
             _ => None,
         }
     }
@@ -175,6 +209,7 @@ impl EthResponse {
     pub fn tx(self) -> Option<TxReceipt> {
         match self {
             EthResponse::eth_getTransactionByHash(tx) => Some(tx),
+            EthResponse::eth_getTransactionReceipt(tx) => Some(tx),
             _ => None,
         }
     }
@@ -199,6 +234,12 @@ impl EthResponse {
                 recs,
                 trace,
             } => logs,
+            _ => None,
+        }
+    }
+    pub fn logs(self) -> Option<Vec<web3::types::Log>> {
+        match self {
+            EthResponse::eth_getLogs(logs) => Some(logs),
             _ => None,
         }
     }

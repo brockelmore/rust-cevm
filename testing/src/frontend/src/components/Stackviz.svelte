@@ -53,7 +53,7 @@
 	        text: cfg.name,
 	        fill: '#FFF',
 	        fontSize: 16,
-	        textAlign: 'left',
+	        textAlign: 'bottom',
 	      },
 	      name: 'text-shape',
 	    });
@@ -172,7 +172,7 @@
             direction: 'LR',
             indent: 180,
             getHeight: function getHeight() {
-              return 16;
+              return 32;
             },
             getWidth: function getWidth() {
               return 16;

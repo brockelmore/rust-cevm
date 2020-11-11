@@ -52,7 +52,7 @@ impl Handler<CompilerRequest> for Compiler {
                     Err(e) => {
                         println!("compilation failed: {:?}", e);
                         CompilerResponse::Failure(e)
-                    },
+                    }
                 }
             }
             CompilerRequest::LoadCompiled(out) => {
@@ -108,10 +108,7 @@ impl Compiler {
         }
     }
 
-    pub fn load_compile(
-        &self,
-        output_dir: String,
-    ) -> std::result::Result<SolcOutput, String> {
+    pub fn load_compile(&self, output_dir: String) -> std::result::Result<SolcOutput, String> {
         if let Ok(file) = fs::read_to_string(output_dir + "/combined.json") {
             if let Ok(mut json) = serde_json::from_str::<JsonValue>(&file) {
                 let mut solc_output = SolcOutput {

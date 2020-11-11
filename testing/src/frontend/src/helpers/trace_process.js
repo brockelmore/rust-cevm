@@ -9,6 +9,7 @@ const create = "#3c003b";
 const success = "#00FF00";
 const fail = "#FF0000";
 const default_fill = "#050505";
+const log_stroke = "#3c003b";
 
 export function process_subtrace(x, num, depth, parent_num) {
     let me = {}
@@ -66,13 +67,41 @@ export function process_subtrace(x, num, depth, parent_num) {
       }
       let output = {
         'id': me['id'] + '-output',
-        'name': 'Output: ' +  "( " + x['output']['String'] + " )",
+        'name': 'Output: ' +  "( " + x['output']['String'].length > 100 ?  x['output']['String'].slice(0, 100) + ".." : x['output']['String'] + " )",
         'value': 0,
         'stroke': success,
         'fill': default_fill
       }
       me['children'].push(output);
     }
+
+    console.log(x["logs"])
+    // if (x["logs"] && x["logs"].length > 0) {
+    //   if (!me['children']) {
+    //     me['children'] = []
+    //   }
+    //   for (let i = 0; i < x['logs'].length; i++) {
+    //     if (x['logs'][i]['log']["Parsed"]) {
+    //       let output = {
+    //         'id': me['id'] + '-log-' + i.toString(),
+    //         'name': 'Log::' + x['logs'][i]["name"] + "\n ( " + JSON.stringify(x['logs'][i]['log']['Parsed']) + " )",
+    //         'value': 0,
+    //         'stroke': log_stroke,
+    //         'fill': default_fill
+    //       }
+    //       me['children'].push(output);
+    //     } else {
+    //       let output = {
+    //         'id': me['id'] + '-log-' + i.toString(),
+    //         'name': 'Log::' + x['logs'][i]["name"] + "\n ( " + JSON.stringify(x['logs'][i]['log']['NotParsed']) + " )",
+    //         'value': 0,
+    //         'stroke': log_stroke,
+    //         'fill': default_fill
+    //       }
+    //       me['children'].push(output);
+    //     }
+    //   }
+    // }
     return me
 }
 
@@ -117,6 +146,7 @@ function process_inputs(inputs) {
 }
 
 export function process_trace(trace) {
+  console.log(trace)
   let fin = {}
   fin["id"] = "0";
   fin['name'] = trace[0]["name"] + "::" + trace[0]['function'];

@@ -5,7 +5,7 @@ use evm::{backend::memory::TxReceipt, executor::CallTrace};
 use service::shared::*;
 use web3::types::{Bytes, TransactionRequest, H160, U256};
 
-use std::collections::{BTreeSet, BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::shared::*;
 // use ethabi_next::*;
@@ -168,7 +168,11 @@ impl Tester {
         let eth_resp = evm
             .send(EthRequest::eth_sendTransaction(
                 tx,
-                Some(vec!["receipt".to_string(), "trace".to_string(), "no_commit".to_string()]),
+                Some(vec![
+                    "receipt".to_string(),
+                    "trace".to_string(),
+                    "no_commit".to_string(),
+                ]),
             ))
             .await;
 
@@ -270,9 +274,6 @@ impl Tester {
         self.contract_addresses_rev
             .insert("Cheater".to_string(), Some(addr));
     }
-
-
-
 }
 
 #[derive(Clone, Debug)]
@@ -297,60 +298,54 @@ pub struct TestInfo {
 impl TestInfo {
     pub fn parse_events_from_rec(&self, rec: TxReceipt) -> Vec<SourcedLog> {
         let mut logs = Vec::with_capacity(rec.logs.len());
-        for log in rec.logs.iter() {
-            if let Some(maybe_src) = self.contract_addresses.get(&log.address) {
-                if let Some(src) = maybe_src {
-                    let contract = self.contracts.get(src).unwrap();
-                    let raw_log = RawLog::from((log.topics.clone(), log.data.clone()));
-                    let events = contract.abi.events();
-                    for event in events {
-                        let sig = event.signature();
-                        if sig == raw_log.clone().topics[0] {
-                            logs.push(SourcedLog {
-                                name: src.to_string(),
-                                log: Some(BetterLog::from(event.parse_log(raw_log.clone()).unwrap())),
-                                unknown: None,
-                            });
-                        }
-                    }
-                } else {
-                    logs.push(SourcedLog {
-                        name: hex::encode(log.address.as_bytes()),
-                        log: None,
-                        unknown: Some(log.clone()),
-                    });
-                }
-            }
-        }
+        logs = self.parse_events(rec.logs);
         logs
     }
-
 
     pub fn parse_events(&self, logs: Vec<evm::backend::Log>) -> Vec<SourcedLog> {
         let mut ls = Vec::new();
         for log in logs.iter() {
+            let encoded = hex::encode(log.topics[0]);
+            let event_name = self.sigs.get(&encoded).unwrap_or(&encoded);
             if let Some(maybe_src) = self.contract_addresses.get(&log.address) {
-                if let Some(src) = maybe_src {
-                    let contract = self.contracts.get(src).unwrap();
+                if let Some(full_src) = maybe_src {
+                    let src = to_contract_name(full_src);
+                    let contract = self.contracts.get(full_src).unwrap();
                     let raw_log = RawLog::from((log.topics.clone(), log.data.clone()));
                     let events = contract.abi.events();
                     for event in events {
                         let sig = event.signature();
                         if sig == raw_log.clone().topics[0] {
+                            let parsed = event.parse_log(raw_log.clone()).unwrap();
+                            let mut tss = HashMap::new();
+                            for logparam in parsed.params.iter() {
+                                tss.insert(
+                                    logparam.name.clone(),
+                                    BetterToken::from(logparam.value.clone()),
+                                );
+                            }
+
                             ls.push(SourcedLog {
                                 name: src.to_string(),
-                                log: Some(BetterLog::from(event.parse_log(raw_log.clone()).unwrap())),
-                                unknown: None,
+                                event: hex::encode(sig),
+                                log: ParsedOrNormalLog::Parsed(tss),
                             });
+                            // break;
                         }
                     }
                 } else {
                     ls.push(SourcedLog {
                         name: hex::encode(log.address.as_bytes()),
-                        log: None,
-                        unknown: Some(log.clone()),
+                        event: event_name.clone(),
+                        log: ParsedOrNormalLog::NotParsed(log.clone()),
                     });
                 }
+            } else {
+                ls.push(SourcedLog {
+                    name: hex::encode(log.address.as_bytes()),
+                    event: event_name.clone(),
+                    log: ParsedOrNormalLog::NotParsed(log.clone()),
+                });
             }
         }
         ls
@@ -401,6 +396,7 @@ impl TestInfo {
                                 inputs: TokensOrString::Tokens(tss),
                                 cost: t.cost,
                                 output: TokensOrString::Tokens(tso),
+                                logs: self.parse_events(t.logs.clone()),
                                 inner: self.parse_call_trace(t.inner.clone()),
                             }));
                             found = true;
@@ -428,6 +424,7 @@ impl TestInfo {
                             inputs: TokensOrString::String(t.input.clone()),
                             cost: t.cost,
                             output: out,
+                            logs: self.parse_events(t.logs.clone()),
                             inner: self.parse_call_trace(t.inner.clone()),
                         }));
                     }
@@ -452,6 +449,7 @@ impl TestInfo {
                         inputs: TokensOrString::String(t.input.clone()),
                         cost: t.cost,
                         output: out,
+                        logs: self.parse_events(t.logs.clone()),
                         inner: self.parse_call_trace(t.inner.clone()),
                     }));
                 }
@@ -476,6 +474,7 @@ impl TestInfo {
                     inputs: TokensOrString::String(t.input.clone()),
                     cost: t.cost,
                     output: out,
+                    logs: self.parse_events(t.logs.clone()),
                     inner: self.parse_call_trace(t.inner.clone()),
                 }));
             }
@@ -485,7 +484,13 @@ impl TestInfo {
 
     pub fn from_eth_resp(&self, eth_resp: EthResponse) -> TestEVMResponse {
         match eth_resp {
-            EthResponse::eth_sendTransaction{hash, data, logs, recs, trace} => {
+            EthResponse::eth_sendTransaction {
+                hash,
+                data,
+                logs,
+                recs,
+                trace,
+            } => {
                 let mut d = None;
                 if let Some(da) = data {
                     d = Some(hex::encode(da));
@@ -504,12 +509,10 @@ impl TestInfo {
                     data: d,
                     logs: l,
                     recs: recs,
-                    trace: t
+                    trace: t,
                 }
-            },
-            _ => {
-                TestEVMResponse::default()
             }
+            _ => TestEVMResponse::default(),
         }
     }
 }
@@ -545,8 +548,37 @@ impl Handler<TestRequest> for Tester {
                     .into_actor(self)
                     .map(|_res, act, _ctx| Ok(TestResponse::Tests(act.get_tests()))),
             ),
-            TestRequest::Test(src, test, opts) => {
+            TestRequest::Sim(hash, in_place, opts) => {
+                let mut t_info = TestInfo {
+                    src: String::new(),
+                    test: String::new(),
+                    testerIsEOA: false,
+                    sender: self.sender.clone(),
+                    contract: H160::zero(),
+                    evm: self.evm.clone(),
+                    bytecode: None,
+                    is_deployed: true,
+                    is_setup: true,
+                    contract_addresses: self.contract_addresses.clone(),
+                    contract_addresses_rev: self.contract_addresses_rev.clone(),
+                    contracts: self.compiled.contracts.clone(),
+                    setup_tests: self.setup_tests.clone(),
+                    sigs: self.sigs.clone(),
+                    results: Vec::new(),
+                };
 
+                let e = async move {
+                    let sim_resp = t_info
+                        .evm
+                        .send(EthRequest::eth_sim(hash, in_place, opts))
+                        .await;
+                    t_info.results.push(t_info.from_eth_resp(sim_resp.unwrap()));
+                    Ok(TestResponse::Sim(t_info.results))
+                };
+                let me = e.into_actor(self);
+                Box::pin(me)
+            }
+            TestRequest::Test(src, test, opts) => {
                 let mut isEOA = false;
                 if let Some(ops) = opts {
                     if let Some(sender) = ops.sender {
@@ -556,7 +588,6 @@ impl Handler<TestRequest> for Tester {
                         isEOA = EOA;
                     }
                 }
-
 
                 let is_deployed = self.is_deployed(&src);
                 let mut contract = H160::zero();
@@ -630,12 +661,14 @@ impl Handler<TestRequest> for Tester {
                                                 .insert(name.clone(), Some(*addr));
                                             break;
                                         }
-
                                     }
                                     t_info.contract_addresses.insert(*addr, search_src);
                                 }
                             }
-                            let call_addrs = flatten_call_addrs(&t_info.contract_addresses, deploy_resp.clone().tx_trace().unwrap().clone());
+                            let call_addrs = flatten_call_addrs(
+                                &t_info.contract_addresses,
+                                deploy_resp.clone().tx_trace().unwrap().clone(),
+                            );
                             for (addr, maybe_in_code) in call_addrs.iter() {
                                 if !t_info.contract_addresses.contains_key(addr) {
                                     let code = Self::get_code(*addr, t_info.evm.clone()).await;
@@ -649,12 +682,16 @@ impl Handler<TestRequest> for Tester {
                                                 .insert(name.clone(), Some(*addr));
                                             break;
                                         }
-
                                     }
                                     t_info.contract_addresses.insert(*addr, search_src);
                                 }
                             }
-                            t_info.contract = t_info.contract_addresses_rev.get(&t_info.src).unwrap().unwrap().clone();
+                            t_info.contract = t_info
+                                .contract_addresses_rev
+                                .get(&t_info.src)
+                                .unwrap()
+                                .unwrap()
+                                .clone();
                             t_info.results.push(t_info.from_eth_resp(deploy_resp));
                         }
                         let mut setup = None;
@@ -665,8 +702,7 @@ impl Handler<TestRequest> for Tester {
                                 sender = t_info.contract;
                             }
                             setup = Some(
-                                Self::setup(sender, t_info.contract, t_info.evm.clone())
-                                    .await,
+                                Self::setup(sender, t_info.contract, t_info.evm.clone()).await,
                             );
                         }
                         (setup, t_info)
@@ -700,7 +736,10 @@ impl Handler<TestRequest> for Tester {
                                     t_info.contract_addresses.insert(*addr, search_src);
                                 }
                             }
-                            let call_addrs = flatten_call_addrs(&t_info.contract_addresses, setup_resp.clone().tx_trace().unwrap().clone());
+                            let call_addrs = flatten_call_addrs(
+                                &t_info.contract_addresses,
+                                setup_resp.clone().tx_trace().unwrap().clone(),
+                            );
                             for (addr, maybe_in_code) in call_addrs.iter() {
                                 if !t_info.contract_addresses.contains_key(addr) {
                                     let code = Self::get_code(*addr, t_info.evm.clone()).await;
@@ -714,7 +753,6 @@ impl Handler<TestRequest> for Tester {
                                                 .insert(name.clone(), Some(*addr));
                                             break;
                                         }
-
                                     }
                                     t_info.contract_addresses.insert(*addr, search_src);
                                 }
@@ -736,8 +774,12 @@ impl Handler<TestRequest> for Tester {
                         if t_info.testerIsEOA {
                             sender = t_info.contract;
                         }
-                        let test_res = Self::test(sender, input, t_info.contract, t_info.evm.clone()).await;
-                        let call_addrs = flatten_call_addrs(&t_info.contract_addresses, test_res.clone().tx_trace().unwrap().clone());
+                        let test_res =
+                            Self::test(sender, input, t_info.contract, t_info.evm.clone()).await;
+                        let call_addrs = flatten_call_addrs(
+                            &t_info.contract_addresses,
+                            test_res.clone().tx_trace().unwrap().clone(),
+                        );
                         for (addr, maybe_in_code) in call_addrs.iter() {
                             if !t_info.contract_addresses.contains_key(addr) {
                                 let code = Self::get_code(*addr, t_info.evm.clone()).await;
@@ -746,7 +788,12 @@ impl Handler<TestRequest> for Tester {
                                     if let Some(in_code) = maybe_in_code {
                                         if in_code.len() > 0 {
                                             let dbytes = hex::decode(in_code).unwrap();
-                                            let deployed_bytecode = Self::temp_deploy(t_info.sender, dbytes.clone(), t_info.evm.clone()).await;
+                                            let deployed_bytecode = Self::temp_deploy(
+                                                t_info.sender,
+                                                dbytes.clone(),
+                                                t_info.evm.clone(),
+                                            )
+                                            .await;
                                             code = hex::encode(deployed_bytecode.call().unwrap());
                                         }
                                     }
@@ -760,15 +807,11 @@ impl Handler<TestRequest> for Tester {
                                             .insert(name.clone(), Some(*addr));
                                         break;
                                     }
-
                                 }
                                 t_info.contract_addresses.insert(*addr, search_src);
                             }
                         }
-                        (
-                            test_res,
-                            t_info,
-                        )
+                        (test_res, t_info)
                     }
                     .into_actor(act2)
                     .map(move |res, act, _ctx| {
@@ -846,6 +889,11 @@ impl Handler<TestRequest> for Tester {
                                     f.inputs.iter().map(|p| p.kind.clone()).collect();
                                 let sig = hex::encode(short_signature(&f.name, &params));
                                 act.sigs.insert(sig, f.name.clone());
+                            }
+                        }
+                        for (name, events) in contract.abi.events.iter() {
+                            for e in events.iter() {
+                                act.sigs.insert(hex::encode(e.signature()), e.name.clone());
                             }
                         }
                     }

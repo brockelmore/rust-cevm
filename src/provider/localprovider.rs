@@ -171,6 +171,89 @@ impl Provider {
     }
 
     /// Get storage for a particular index at an address
+    pub fn get_block_by_number_txs(
+        &self,
+        bn: U256,
+    ) -> web3::types::Block<web3::types::Transaction> {
+        self.check_delay();
+        //println!("eth_getBlockByNumber");
+        let index = serialize(&bn);
+        let t = serialize(&true);
+        let request = build_request(0, "eth_getBlockByNumber", vec![index, t]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_storage_at");
+
+        let res = res
+            .json::<Response<web3::types::Block<web3::types::Transaction>>>()
+            .unwrap();
+        res.data.into_result().unwrap()
+    }
+
+    /// Get storage for a particular index at an address
+    pub fn get_block_by_number(&self, bn: U256) -> web3::types::Block<web3::types::H256> {
+        self.check_delay();
+        //println!("eth_getBlockByNumber");
+        let index = serialize(&bn);
+        let t = serialize(&false);
+        let request = build_request(0, "eth_getBlockByNumber", vec![index, t]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_storage_at");
+
+        let res = res
+            .json::<Response<web3::types::Block<web3::types::H256>>>()
+            .unwrap();
+        res.data.into_result().unwrap()
+    }
+
+    /// Get storage for a particular index at an address
+    pub fn get_block_by_hash_txs(&self, bh: H256) -> web3::types::Block<web3::types::Transaction> {
+        self.check_delay();
+        //println!("eth_getBlockByNumber");
+        let index = serialize(&bh);
+        let t = serialize(&true);
+        let request = build_request(0, "eth_getBlockByHash", vec![index, t]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_storage_at");
+
+        let res = res
+            .json::<Response<web3::types::Block<web3::types::Transaction>>>()
+            .unwrap();
+        res.data.into_result().unwrap()
+    }
+
+    /// Get storage for a particular index at an address
+    pub fn get_block_by_hash(&self, bh: H256) -> web3::types::Block<web3::types::H256> {
+        self.check_delay();
+        //println!("eth_getBlockByNumber");
+        let index = serialize(&bh);
+        let t = serialize(&false);
+        let request = build_request(0, "eth_getBlockByHash", vec![index, t]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_storage_at");
+
+        let res = res
+            .json::<Response<web3::types::Block<web3::types::H256>>>()
+            .unwrap();
+        res.data.into_result().unwrap()
+    }
+
+    /// Get storage for a particular index at an address
     pub fn get_storage_at(&self, address: H160, index: H256, block: Option<U256>) -> H256 {
         self.check_delay();
         //println!("eth_getStorageAt, {:?}, {:?}", address, index);
@@ -230,6 +313,7 @@ impl Provider {
     pub fn get_balance(&self, address: H160, block: Option<U256>) -> U256 {
         self.check_delay();
         //println!("eth_getBalance");
+        println!("balance block: {:?}", block);
         let address = serialize(&address);
         let b;
         match block {
@@ -275,6 +359,56 @@ impl Provider {
             .send()
             .expect("provider error, get_tx_count");
         let res = res.json::<Response<U256>>().unwrap();
+        res.data.into_result().unwrap()
+    }
+
+    /// Gets Tx from hash
+    pub fn get_transaction(&self, hash: H256) -> web3::types::Transaction {
+        self.check_delay();
+        //println!("eth_getTransactionReceipt");
+        let h = serialize(&hash);
+
+        let request = build_request(0, "eth_getTransactionByHash", vec![h]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_tx");
+        let res = res.json::<Response<web3::types::Transaction>>().unwrap();
+        res.data.into_result().unwrap()
+    }
+
+    /// Gets Tx from hash
+    pub fn get_logs(
+        &self,
+        from: U256,
+        to: U256,
+        addrs: Vec<H160>,
+        topics: Vec<H256>,
+    ) -> Vec<web3::types::Log> {
+        self.check_delay();
+        //println!("eth_getTransactionReceipt");
+        let filter = serialize(
+            &web3::types::FilterBuilder::default()
+                .from_block(web3::types::BlockNumber::Number(web3::types::U64::from(
+                    from.as_u64(),
+                )))
+                .to_block(web3::types::BlockNumber::Number(web3::types::U64::from(
+                    to.as_u64(),
+                )))
+                .address(addrs)
+                .topics(Some(topics), None, None, None)
+                .build(),
+        );
+        let request = build_request(0, "eth_getLogs", vec![filter]);
+        let res = self
+            .client
+            .post(self.url.clone())
+            .json(&request)
+            .send()
+            .expect("provider error, get_logs");
+        let res = res.json::<Response<Vec<web3::types::Log>>>().unwrap();
         res.data.into_result().unwrap()
     }
 

@@ -1,12 +1,12 @@
 use crate::compiler::solc_types::SolcOutput;
+use crate::tester::tester_types::*;
 use actix::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use web3::types::{H160, H256};
-use crate::tester::tester_types::*;
 
-use service::shared::*;
 use evm::backend::TxReceipt;
+use service::shared::*;
 
 #[allow(non_snake_case)]
 #[derive(Message)]
@@ -15,6 +15,7 @@ pub enum TestRequest {
     Tests,
     Test(String, String, Option<TestOptions>),
     Solc(SolcOutput),
+    Sim(H256, bool, Option<Vec<String>>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
@@ -40,6 +41,7 @@ pub struct TestEVMResponse {
 pub enum TestResponse {
     Tests(HashMap<String, Vec<String>>),
     Test(Vec<TestEVMResponse>),
+    Sim(Vec<TestEVMResponse>),
     UnknownError,
     Success,
     Failure(String),

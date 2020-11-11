@@ -7,6 +7,32 @@
 	} from "./helpers/trace_process";
 	import Select from './components/svelte-select/Select.js';
 
+	let tx_hash;
+	async function sim() {
+		let e = await fetch('http://localhost:2347/sim', {
+			method: 'post',
+			body: JSON.stringify({
+				"hash": tx_hash,
+				"in_place": false,
+				"options": ["trace", "no_commit"]
+			})
+		});
+		let dat = await e.json();
+		console.log("sim", dat);
+
+		let trace = dat["Ok"]["Sim"][0]["trace"];
+		hist[dat["Ok"]["Sim"][0]['hash']] = trace;
+		testHistory.push({
+			'label': dat["Ok"]["Sim"][0]['hash'],
+			'value': dat["Ok"]["Sim"][0]['hash'],
+			'data': trace
+		});
+		testHistory = testHistory;
+		window.localStorage.setItem("tests", JSON.stringify(hist));
+		data = process_trace(trace);
+		console.log("data", data);
+	}
+
 
 	let container
 	let data;
@@ -235,6 +261,14 @@
 			<div>
 				<button on:click={compile}>Compile</button>
 				<button on:click={load_compiled}>Load Compiled</button>
+			</div>
+		</div>
+
+		<div>
+			<span class='selector-label'>Sim Mainnet Tx:</span>
+			<input bind:value={tx_hash}>
+			<div>
+				<button on:click={sim}>Sim</button>
 			</div>
 		</div>
 

@@ -1,9 +1,10 @@
 use ethabi_next::*;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use std::fmt;
 use tiny_keccak::Keccak;
-use web3::types::{H160, U256, H256};
-use serde::{Deserialize, Serialize};
+use web3::types::{H160, H256, U256};
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct BetterBytes(Vec<u8>);
@@ -80,21 +81,20 @@ impl From<Token> for BetterToken {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct BetterLogParam {
-	/// Decoded log name.
-	pub name: String,
-	/// Decoded log value.
-	pub value: BetterToken,
+    /// Decoded log name.
+    pub name: String,
+    /// Decoded log value.
+    pub value: BetterToken,
 }
 
 impl From<LogParam> for BetterLogParam {
     fn from(param: LogParam) -> BetterLogParam {
         BetterLogParam {
-        	name: param.name,
-        	value: BetterToken::from(param.value),
+            name: param.name,
+            value: BetterToken::from(param.value),
         }
     }
 }
-
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BetterLog {
@@ -104,16 +104,26 @@ pub struct BetterLog {
 impl From<Log> for BetterLog {
     fn from(tkn: Log) -> BetterLog {
         BetterLog {
-            params: tkn.params.iter().map(|lp| BetterLogParam::from(lp.clone())).collect(),
+            params: tkn
+                .params
+                .iter()
+                .map(|lp| BetterLogParam::from(lp.clone()))
+                .collect(),
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum ParsedOrNormalLog {
+    Parsed(HashMap<String, BetterToken>),
+    NotParsed(evm::backend::Log),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SourcedLog {
     pub name: String,
-    pub log: Option<BetterLog>,
-    pub unknown: Option<evm::backend::Log>,
+    pub event: String,
+    pub log: ParsedOrNormalLog,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
@@ -126,6 +136,7 @@ pub struct SourceTrace {
     pub inputs: TokensOrString,
     pub cost: usize,
     pub output: TokensOrString,
+    pub logs: Vec<SourcedLog>,
     pub inner: Vec<Box<SourceTrace>>,
 }
 

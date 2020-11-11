@@ -4,15 +4,16 @@ use actix::prelude::*;
 
 use bytes::buf::BufExt;
 
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Method, Request, Response, Server, StatusCode, Uri, header};
-use std::path::{Path, PathBuf};
-use service::shared::EthRequest;
-use std::collections::HashMap;
-use std::fmt;
-use std::error::Error;
 use flate2::{write::ZlibEncoder, Compression};
+use hyper::service::{make_service_fn, service_fn};
+use hyper::{header, Body, Method, Request, Response, Server, StatusCode, Uri};
+use service::shared::{EthRequest, EthResponse};
+use std::collections::HashMap;
+use std::error::Error;
+use std::fmt;
 use std::io::prelude::*;
+use std::path::{Path, PathBuf};
+use web3::types::H256;
 
 pub struct TestingApi {
     pub evm: Recipient<EthRequest>,
@@ -71,6 +72,7 @@ pub async fn response_router(
         (&Method::POST, "/load_compiled") => load_compile_process(req, compiler).await,
         (&Method::POST, "/compile") => compile_process(req, compiler).await,
         (&Method::POST, "/test") => test_process(req, tester).await,
+        (&Method::POST, "/sim") => sim_process(req, tester).await,
         (&Method::GET, "/tests") => test_request(req, tester).await,
         (&Method::GET, path) => home_request(req).await,
         _ => {
@@ -84,23 +86,29 @@ pub async fn response_router(
     }
 }
 
-pub async fn home_request(
-    req: Request<Body>,
-) -> Result<Response<Body>> {
-    let path = local_path_for_request(req.uri(), &Path::new(env!("CARGO_MANIFEST_DIR")).join(&PathBuf::from("./src/frontend/public/"))).unwrap();
+pub async fn home_request(req: Request<Body>) -> Result<Response<Body>> {
+    let path = local_path_for_request(
+        req.uri(),
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join(&PathBuf::from("./src/frontend/public/")),
+    )
+    .unwrap();
     // println!("path: {:?}", path);
     let mime_type = file_path_mime(&path);
     let file_contents = std::fs::read_to_string(path)?;
     // println!("file contents: {:?}", file_contents);
-    string_handler(&file_contents, &(mime_type.type_().as_str().to_owned() + "/" + mime_type.subtype().as_str()), None).await
+    string_handler(
+        &file_contents,
+        &(mime_type.type_().as_str().to_owned() + "/" + mime_type.subtype().as_str()),
+        None,
+    )
+    .await
 }
-
 
 pub async fn bytes_handler(
     body: &[u8],
     content_type: &str,
     status: Option<StatusCode>,
-) -> Result<Response<Body>>  {
+) -> Result<Response<Body>> {
     // Compress
     let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
     e.write_all(body).unwrap();
@@ -138,7 +146,7 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
         p
     } else {
         println!("non utf-8 URL: {}", request_path);
-        return None
+        return None;
     };
 
     // Append the requested path to the root directory
@@ -232,7 +240,11 @@ pub async fn test_process(
         let mut res_for_src: HashMap<String, TestResponse> = HashMap::new();
         for test in tests.iter() {
             let res = tester
-                .send(TestRequest::Test(src.to_string(), test.to_string(), opts.clone()))
+                .send(TestRequest::Test(
+                    src.to_string(),
+                    test.to_string(),
+                    opts.clone(),
+                ))
                 .await;
             let res = res.unwrap_or(Ok(TestResponse::UnknownError));
             res_for_src.insert(test.to_string(), res.unwrap());
@@ -244,6 +256,37 @@ pub async fn test_process(
         .header("Access-Control-Allow-Origin", "*")
         .header("Access-Control-Allow-Methods", "OPTIONS, POST, GET")
         .body(Body::from(serde_json::to_string(&results)?))
+        .unwrap();
+    Ok(res)
+}
+
+pub async fn sim_process(
+    req: Request<Body>,
+    tester: Recipient<TestRequest>,
+) -> Result<Response<Body>> {
+    println!("sim");
+    let whole_body = hyper::body::aggregate(req).await?;
+    let data: serde_json::Value = serde_json::from_reader(whole_body.reader())?;
+    println!("{:?}", data);
+
+    let tx: H256 = serde_json::from_value(data["hash"].clone()).unwrap();
+    let in_place: bool = serde_json::from_value(data["in_place"].clone()).unwrap();
+    let opts;
+    match serde_json::from_value::<Vec<String>>(data["options"].clone()) {
+        Ok(options) => {
+            opts = Some(options);
+        }
+        _ => {
+            opts = None;
+        }
+    }
+    let res = tester.send(TestRequest::Sim(tx, in_place, opts)).await;
+    let res = res.unwrap_or(Ok(TestResponse::UnknownError));
+
+    let res = Response::builder()
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Access-Control-Allow-Methods", "OPTIONS, POST, GET")
+        .body(Body::from(serde_json::to_string(&res)?))
         .unwrap();
     Ok(res)
 }
@@ -275,7 +318,7 @@ impl MyError {
 
 impl fmt::Display for MyError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,"{}",self.0)
+        write!(f, "{}", self.0)
     }
 }
 
