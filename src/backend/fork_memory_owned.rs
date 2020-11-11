@@ -41,7 +41,7 @@ impl ForkMemoryBackendOwned {
             archive_state: BTreeMap::new(),
             logs: BTreeMap::new(),
             provider: Provider::new(provider),
-            local_block_num: vicinity.block_number.clone(),
+            local_block_num: vicinity.block_number,
             tx_history: BTreeMap::new(),
         }
     }
@@ -164,7 +164,7 @@ impl Backend for ForkMemoryBackendOwned {
     fn storage(&self, address: H160, index: H256) -> H256 {
         if let Some(acct) = self.state.get(&address) {
             if let Some(store_data) = acct.storage.get(&index) {
-                store_data.clone()
+                *store_data
             } else if !acct.created {
                 self.provider
                     .get_storage_at(address, index, Some(self.vicinity.block_number))
@@ -197,13 +197,13 @@ impl Backend for ForkMemoryBackendOwned {
         if from != None {
             from_block = from.unwrap();
         } else {
-            from_block = self.vicinity.block_number.clone();
+            from_block = self.vicinity.block_number;
         };
         let to_block;
         if to != None {
             to_block = to.unwrap();
         } else {
-            to_block = self.vicinity.block_number.clone();
+            to_block = self.vicinity.block_number;
         };
 
         println!("self logs: {:#?}", self.logs);
@@ -218,7 +218,7 @@ impl Backend for ForkMemoryBackendOwned {
             let parsed: Vec<web3::types::Log> = matched_logs
                 .iter()
                 .map(|l| web3::types::Log {
-                    address: l.address.clone(),
+                    address: l.address,
                     topics: l.topics.clone(),
                     data: web3::types::Bytes(l.data.clone()),
                     block_hash: None,
@@ -302,7 +302,7 @@ impl ApplyBackend for ForkMemoryBackendOwned {
                                 .storage
                                 .iter()
                                 .filter(|(_, v)| v == &&H256::default())
-                                .map(|(k, _)| k.clone())
+                                .map(|(k, _)| *k)
                                 .collect::<Vec<H256>>();
 
                             for zero in zeros {
@@ -321,7 +321,7 @@ impl ApplyBackend for ForkMemoryBackendOwned {
 
                             account.balance == U256::zero()
                                 && account.nonce == U256::zero()
-                                && account.code.len() == 0
+                                && account.code.is_empty()
                         } else {
                             // changes arent for this blocking
                             let archive = self
@@ -343,7 +343,7 @@ impl ApplyBackend for ForkMemoryBackendOwned {
                                 .storage
                                 .iter()
                                 .filter(|(_, v)| v == &&H256::default())
-                                .map(|(k, _)| k.clone())
+                                .map(|(k, _)| *k)
                                 .collect::<Vec<H256>>();
 
                             for zero in zeros {
@@ -360,7 +360,7 @@ impl ApplyBackend for ForkMemoryBackendOwned {
 
                             account.balance == U256::zero()
                                 && account.nonce == U256::zero()
-                                && account.code.len() == 0
+                                && account.code.is_empty()
                         }
                     };
 

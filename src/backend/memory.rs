@@ -92,7 +92,7 @@ impl<'vicinity> MemoryBackend<'vicinity> {
             vicinity,
             state,
             archive_state: BTreeMap::new(),
-            local_block_num: vicinity.block_number.clone(),
+            local_block_num: vicinity.block_number,
             logs: BTreeMap::new(),
             tx_history: BTreeMap::new(),
         }
@@ -177,7 +177,7 @@ impl<'vicinity> Backend for MemoryBackend<'vicinity> {
     fn storage(&self, address: H160, index: H256) -> H256 {
         self.state
             .get(&address)
-            .map(|v| v.storage.get(&index).cloned().unwrap_or(H256::default()))
+            .map(|v| v.storage.get(&index).cloned().unwrap_or_default())
             .unwrap_or(H256::default())
     }
 
@@ -252,7 +252,7 @@ impl<'vicinity> ApplyBackend for MemoryBackend<'vicinity> {
                                 .storage
                                 .iter()
                                 .filter(|(_, v)| v == &&H256::default())
-                                .map(|(k, _)| k.clone())
+                                .map(|(k, _)| *k)
                                 .collect::<Vec<H256>>();
 
                             for zero in zeros {
@@ -269,7 +269,7 @@ impl<'vicinity> ApplyBackend for MemoryBackend<'vicinity> {
 
                             account.balance == U256::zero()
                                 && account.nonce == U256::zero()
-                                && account.code.len() == 0
+                                && account.code.is_empty()
                         } else {
                             // changes arent for this blocking
                             let archive = self
@@ -291,7 +291,7 @@ impl<'vicinity> ApplyBackend for MemoryBackend<'vicinity> {
                                 .storage
                                 .iter()
                                 .filter(|(_, v)| v == &&H256::default())
-                                .map(|(k, _)| k.clone())
+                                .map(|(k, _)| *k)
                                 .collect::<Vec<H256>>();
 
                             for zero in zeros {
@@ -308,7 +308,7 @@ impl<'vicinity> ApplyBackend for MemoryBackend<'vicinity> {
 
                             account.balance == U256::zero()
                                 && account.nonce == U256::zero()
-                                && account.code.len() == 0
+                                && account.code.is_empty()
                         }
                     };
 

@@ -192,7 +192,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         self.logs.append(&mut substate.logs);
         self.deleted.append(&mut substate.deleted);
         for cc in substate.created_contracts.into_iter() {
-            self.created_contracts.insert(cc.clone());
+            self.created_contracts.insert(cc);
         }
         self.state = substate.state;
         self.tmp_bn = substate.tmp_bn;
@@ -438,10 +438,10 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
             if account.reset_storage_backend {
                 for (slot, _val) in account.storage.iter() {
                     if let Some(strg) = account.original_storage.get(&slot) {
-                        storage.insert(slot.clone(), strg.clone());
+                        storage.insert(*slot, *strg);
                     } else {
-                        let strg = self.backend.storage(address.clone(), slot.clone());
-                        storage.insert(slot.clone(), strg.clone());
+                        let strg = self.backend.storage(address, *slot);
+                        storage.insert(*slot, strg);
                     }
                 }
             } else {
@@ -464,7 +464,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         let logs = self.logs;
         let txs = self.pending_txs;
 
-        (applies, logs, txs, self.created_contracts.clone())
+        (applies, logs, txs, self.created_contracts)
     }
 
     /// Deconstruct the executor, return state to be applied.
@@ -502,7 +502,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         let logs = self.logs;
         let txs = self.pending_txs;
 
-        (applies, logs, txs, self.created_contracts.clone())
+        (applies, logs, txs, self.created_contracts)
     }
 
     /// Get mutable account reference.
@@ -551,7 +551,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
     pub fn withdraw(&mut self, address: H160, balance: U256) -> Result<(), ExitError> {
         let source = self.account_mut(address);
         if source.basic.balance < balance {
-            return Err(ExitError::OutOfFund.into());
+            return Err(ExitError::OutOfFund);
         }
         source.basic.balance -= balance;
 
@@ -653,7 +653,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         {
             // already exists
             if let Some(code) = substate.account_mut(address).code.as_ref() {
-                if code.len() != 0 {
+                if !code.is_empty() {
                     calltrace.success = false;
                     calltrace.addr = address;
                     calltrace.created = true;
@@ -668,7 +668,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                 let code = substate.backend.code(address);
                 substate.account_mut(address).code = Some(code.clone());
 
-                if code.len() != 0 {
+                if !code.is_empty() {
                     calltrace.success = false;
                     calltrace.addr = address;
                     calltrace.created = true;
@@ -783,7 +783,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                                 reset_storage: false,
                                 reset_storage_backend: false,
                             };
-                            self.state.insert(address, acct.clone());
+                            self.state.insert(address, acct);
                         }
                         try_or_fail!(e);
                         Capture::Exit((ExitReason::Succeed(s), Some(address), Vec::new()))
@@ -854,17 +854,17 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
             let sig = hex::encode([input[0], input[1], input[2], input[3]]);
             match sig {
                 // roll
-                _ if sig == "1f7b4f30".to_string() => {
+                _ if sig == *"1f7b4f30" => {
                     let amount = U256::from_big_endian(&input[4..]);
                     self.tmp_bn = Some(amount);
                 }
                 // warp
-                _ if sig == "e5d6bf02".to_string() => {
+                _ if sig == *"e5d6bf02" => {
                     let timestamp = U256::from_big_endian(&input[4..]);
                     self.tmp_timestamp = Some(timestamp);
                 }
                 // store
-                _ if sig == "70ca10bb".to_string() => {
+                _ if sig == *"70ca10bb" => {
                     let who = H160::from_slice(&input[16..36]);
                     let slot = H256::from_slice(&input[36..68]);
                     let val = H256::from_slice(&input[68..]);
@@ -891,7 +891,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                     }
                 }
                 // load
-                _ if sig == "667f9d70".to_string() => {
+                _ if sig == *"667f9d70" => {
                     let who = H160::from_slice(&input[16..36]);
                     let slot = H256::from_slice(&input[36..68]);
                     forced_ret = self.storage(who, slot);
@@ -938,7 +938,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         let mut sig: [u8; 4] = Default::default();
         let i;
         if input.len() >= 4 {
-            sig.copy_from_slice(&input.clone()[..4]);
+            sig.copy_from_slice(&input[..4]);
         }
 
         if input.len() > 4 {
@@ -1006,7 +1006,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
             };
         }
 
-        let mut runtime = Runtime::new(Rc::new(code), Rc::new(input.clone()), context, self.config);
+        let mut runtime = Runtime::new(Rc::new(code), Rc::new(input), context, self.config);
 
         if code_address == "7109709ECfa91a80626fF3989D68f67F5b1DD12D".parse().unwrap()
             && is_forced_ret
@@ -1154,7 +1154,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
                 reset_storage_backend: false,
             };
             self.state.insert(address, acct.clone());
-            H256::from_slice(Keccak256::digest(&acct.code.clone().unwrap()).as_slice())
+            H256::from_slice(Keccak256::digest(&acct.code.unwrap()).as_slice())
         }
     }
 
@@ -1182,7 +1182,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
                 reset_storage_backend: false,
             };
             self.state.insert(address, acct.clone());
-            acct.code.clone().unwrap()
+            acct.code.unwrap()
         }
     }
 
@@ -1190,9 +1190,9 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
         if self.state.contains_key(&address) {
             let acct = self.state.get_mut(&address).unwrap();
             if let Some(storage_data) = acct.storage.get(&index) {
-                storage_data.clone()
+                *storage_data
             } else if let Some(storage_data) = acct.original_storage.get(&index) {
-                storage_data.clone()
+                *storage_data
             } else if self.created_contracts.contains(&address) {
                 // this contract was created by self, dont call backend for it
                 H256::default()
@@ -1229,7 +1229,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
             if account.reset_storage {
                 return H256::default();
             } else if let Some(strg) = account.original_storage.get(&index) {
-                return strg.clone();
+                return *strg;
             } else {
                 let storage = self.backend.storage(address, index);
                 account.original_storage.insert(index, storage);
@@ -1266,12 +1266,12 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
         } else if let Some(account) = self.state.get(&address) {
             account.basic.nonce != U256::zero()
                 || account.basic.balance != U256::zero()
-                || account.code.as_ref().map(|c| c.len() != 0).unwrap_or(false)
-                || self.backend.code(address).len() != 0
+                || account.code.as_ref().map(|c| !c.is_empty()).unwrap_or(false)
+                || !self.backend.code(address).is_empty()
         } else {
             self.backend.basic(address).nonce != U256::zero()
                 || self.backend.basic(address).balance != U256::zero()
-                || self.backend.code(address).len() != 0
+                || !self.backend.code(address).is_empty()
         }
     }
 
