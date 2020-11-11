@@ -275,7 +275,10 @@ impl ApplyBackend for ForkMemoryBackendOwned {
                 } => {
                     let is_empty = {
                         if tip {
-                            let mut account = self.state.entry(address).or_insert_with(MemoryAccount::default);
+                            let mut account = self
+                                .state
+                                .entry(address)
+                                .or_insert_with(MemoryAccount::default);
 
                             if created_contracts.contains(&address) {
                                 account.created = true;
