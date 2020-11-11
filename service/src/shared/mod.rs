@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
 use actix::prelude::*;
-use evm::backend::{ForkMemoryBackendOwned, memory::TxReceipt, Backend};
+use evm::backend::{memory::TxReceipt, Backend};
 use evm::executor::CallTrace;
 use primitive_types::{H160, H256, U256};
 use serde::{Deserialize, Serialize};
@@ -384,7 +384,7 @@ impl EthResponse {
     )> {
         match self {
             EthResponse::eth_sendTransaction {
-                hash,
+                hash: _,
                 data,
                 logs,
                 recs,

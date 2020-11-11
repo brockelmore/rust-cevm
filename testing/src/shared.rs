@@ -4,7 +4,6 @@ use actix::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use web3::types::{H160, H256};
-
 use evm::backend::TxReceipt;
 
 #[allow(non_snake_case)]
@@ -22,10 +21,6 @@ pub struct TestOptions {
     pub sender: Option<H160>,
     pub testerIsEOA: Option<bool>,
 }
-
-// impl Message for TestRequest {
-//     type Result = ResponseActFuture<Self, std::result::Result<TestResponse, ()>>;
-// }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct TestEVMResponse {

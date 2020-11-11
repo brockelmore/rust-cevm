@@ -92,10 +92,8 @@ pub async fn home_request(req: Request<Body>) -> Result<Response<Body>> {
         &Path::new(env!("CARGO_MANIFEST_DIR")).join(&PathBuf::from("./src/frontend/public/")),
     )
     .unwrap();
-    // println!("path: {:?}", path);
     let mime_type = file_path_mime(&path);
     let file_contents = std::fs::read_to_string(path)?;
-    // println!("file contents: {:?}", file_contents);
     string_handler(
         &file_contents,
         &(mime_type.type_().as_str().to_owned() + "/" + mime_type.subtype().as_str()),
@@ -113,8 +111,6 @@ pub async fn bytes_handler(
     let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
     e.write_all(body).unwrap();
     let compressed = e.finish().unwrap();
-    // println!("content_type: {:?}", content_type);
-    // Return response
     Ok(Response::builder()
         .status(status.unwrap_or_default())
         .header(header::CONTENT_TYPE, content_type)
@@ -158,12 +154,9 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
         return None;
     }
 
-    // println!("path {:?}, root_dir: {:?}", path, root_dir);
     if path == root_dir {
         return Some(root_dir.join(PathBuf::from("index.html")));
     }
-
-    // println!("URL · path : {} · {}", uri, path.display());
 
     Some(path)
 }
@@ -180,7 +173,6 @@ pub async fn compile_process(
     let data: serde_json::Value = serde_json::from_reader(whole_body.reader())?;
     let input_dir: String = serde_json::from_value(data["input_dir"].clone())?;
     let output_dir: String = serde_json::from_value(data["output_dir"].clone())?;
-    // let opts: CompileOptions = serde_json::from_value(data["options"].clone()).unwrap();
 
     let results = compiler
         .send(CompilerRequest::Compile(input_dir, output_dir, None))
@@ -303,27 +295,4 @@ pub async fn test_request(
         .body(Body::from(serde_json::to_string(&res)?))
         .unwrap();
     Ok(res)
-}
-
-// impl Handler
-
-#[derive(Debug)]
-struct MyError(String);
-
-impl MyError {
-    fn new(msg: &str) -> MyError {
-        MyError(msg.to_string())
-    }
-}
-
-impl fmt::Display for MyError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Error for MyError {
-    fn description(&self) -> &str {
-        &self.0
-    }
 }
