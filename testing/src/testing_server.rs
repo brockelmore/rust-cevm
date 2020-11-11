@@ -7,7 +7,7 @@ use bytes::buf::BufExt;
 use flate2::{write::ZlibEncoder, Compression};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Method, Request, Response, Server, StatusCode, Uri};
-use service::shared::{EthRequest};
+use service::shared::EthRequest;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;

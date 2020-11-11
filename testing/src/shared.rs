@@ -7,7 +7,6 @@ use web3::types::{H160, H256};
 
 use evm::backend::TxReceipt;
 
-
 #[allow(non_snake_case)]
 #[derive(Message)]
 #[rtype(result = "Result<TestResponse, ()>")]

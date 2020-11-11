@@ -1,10 +1,7 @@
 use service::server::*;
 
 #[allow(non_snake_case)]
-use service::{
-    shared::{EthRequest},
-    EVM::*,
-};
+use service::{shared::EthRequest, EVM::*};
 
 use actix::clock::delay_for;
 use actix::prelude::*;
@@ -12,7 +9,6 @@ use compiler::{solc_types::SolcOutput, Compiler};
 use std::time::Duration;
 use tester::Tester;
 use testing_server::TestingApi;
-
 
 use std::collections::HashMap;
 use web3::types::H160;

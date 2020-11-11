@@ -7,15 +7,11 @@ use actix::prelude::*;
 
 use serde_json::Value as JsonValue;
 
-
-
-
 use std::collections::HashMap;
 
 use std::fs;
 
 use std::path::Path;
-
 
 pub mod solc_types;
 

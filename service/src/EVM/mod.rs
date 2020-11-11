@@ -2,10 +2,7 @@
 use super::shared::*;
 use actix::prelude::*;
 use evm::{
-    backend::*,
-    executor::{StackExecutor},
-    provider::localprovider::Provider,
-    Config, Handler,
+    backend::*, executor::StackExecutor, provider::localprovider::Provider, Config, Handler,
 };
 use parity_crypto::publickey::public_to_address;
 use std::collections::BTreeMap;
@@ -304,9 +301,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                     unsigned: SelfTransaction {
                         nonce: tx.nonce.unwrap_or(exec.nonce(tx.from)),
                         gas_price: tx.gas_price.unwrap_or(U256::zero()),
-                        gas: tx
-                            .gas
-                            .unwrap_or(self.backend.vicinity.block_gas_limit),
+                        gas: tx.gas.unwrap_or(self.backend.vicinity.block_gas_limit),
                         action,
                         value: tx.value.unwrap_or(U256::zero()),
                         data: raw,

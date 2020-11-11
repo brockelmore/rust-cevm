@@ -1,4 +1,4 @@
-use evm_core::{Machine};
+use evm_core::Machine;
 
 use std::rc::Rc;
 

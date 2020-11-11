@@ -595,11 +595,7 @@ impl Handler<TestRequest> for Tester {
                             .unwrap(),
                     );
                 } else {
-                    contract = self
-                        .contract_addresses_rev
-                        .get(&src)
-                        .unwrap()
-                        .unwrap();
+                    contract = self.contract_addresses_rev.get(&src).unwrap().unwrap();
                 }
 
                 let t_info = TestInfo {
