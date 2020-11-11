@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use primitive_types::{H160, H256, U256};
 use sha3::{Digest, Keccak256};
 use std::collections::BTreeSet;
+use web3::types::Transaction;
 
 /// Transaction receipt
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
@@ -186,6 +187,20 @@ impl<'vicinity> Backend for MemoryBackend<'vicinity> {
         } else {
             TxReceipt::default()
         }
+    }
+
+    fn tx(&self, _hash: H256) -> Transaction {
+        Transaction::default()
+    }
+
+    fn logs(
+        &self,
+        _from: Option<U256>,
+        _to: Option<U256>,
+        _addr: Vec<H160>,
+        _topics: Vec<H256>,
+    ) -> Vec<web3::types::Log> {
+        Vec::new()
     }
 }
 

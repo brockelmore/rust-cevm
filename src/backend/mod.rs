@@ -12,6 +12,7 @@ pub use self::fork_memory_owned::ForkMemoryBackendOwned;
 use alloc::vec::Vec;
 use primitive_types::{H160, H256, U256};
 use std::collections::BTreeSet;
+use web3::types::Transaction;
 
 /// Basic account information.
 #[derive(Clone, Eq, PartialEq, Debug, Default)]
@@ -91,8 +92,18 @@ pub trait Backend {
     fn code(&self, address: H160) -> Vec<u8>;
     /// Get storage value of address at index.
     fn storage(&self, address: H160, index: H256) -> H256;
-    /// Get storage value of address at index.
+    /// Get tx receipt
     fn tx_receipt(&self, hash: H256) -> TxReceipt;
+    /// Get tx
+    fn tx(&self, hash: H256) -> Transaction;
+    /// Get Logs
+    fn logs(
+        &self,
+        from: Option<U256>,
+        to: Option<U256>,
+        addr: Vec<H160>,
+        topics: Vec<H256>,
+    ) -> Vec<web3::types::Log>;
 }
 
 /// EVM backend that can apply changes.

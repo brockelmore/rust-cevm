@@ -128,6 +128,14 @@ impl<'vicinity> Backend for ForkMemoryBackend<'vicinity> {
 			self.provider.get_transaction_receipt(hash)
 		}
     }
+
+	fn tx(&self, hash: H256) -> Transaction {
+        self.provider.get_transaction(hash)
+    }
+
+	fn logs(&self, _from: Option<U256>, _to: Option<U256>, _addr: Vec<H160>, _topics: Vec<H256>) -> Vec<web3::types::Log> {
+        Vec::new()
+    }
 }
 
 impl<'vicinity> ApplyBackend for ForkMemoryBackend<'vicinity> {
@@ -163,7 +171,7 @@ impl<'vicinity> ApplyBackend for ForkMemoryBackend<'vicinity> {
 							if let Some(code) = code {
 								account.code = code;
 							}
-							
+
 							if created_contracts.contains(&address) {
 								account.created = true;
 							}

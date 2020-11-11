@@ -351,6 +351,7 @@ impl GasometerOwned {
 }
 
 /// Calculate the call transaction cost.
+#[allow(clippy::naive_bytecount)]
 pub fn call_transaction_cost(data: &[u8]) -> TransactionCost {
     let zero_data_len = data.iter().filter(|v| **v == 0).count();
     let non_zero_data_len = data.len() - zero_data_len;
@@ -362,6 +363,7 @@ pub fn call_transaction_cost(data: &[u8]) -> TransactionCost {
 }
 
 /// Calculate the create transaction cost.
+#[allow(clippy::naive_bytecount)]
 pub fn create_transaction_cost(data: &[u8]) -> TransactionCost {
     let zero_data_len = data.iter().filter(|v| **v == 0).count();
     let non_zero_data_len = data.len() - zero_data_len;
@@ -516,8 +518,7 @@ pub fn opcode_cost<H: Handler>(
             already_removed: handler.deleted(address),
         },
         Err(ExternalOpcode::Call)
-            if !is_static
-                || (is_static && U256::from_big_endian(&stack.peek(2)?[..]) == U256::zero()) =>
+            if !is_static || U256::from_big_endian(&stack.peek(2)?[..]) == U256::zero() =>
         {
             GasCost::Call {
                 value: U256::from_big_endian(&stack.peek(2)?[..]),

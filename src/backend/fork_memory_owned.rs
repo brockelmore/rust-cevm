@@ -4,22 +4,27 @@ use alloc::vec::Vec;
 use primitive_types::{H160, H256, U256};
 use sha3::{Digest, Keccak256};
 use std::collections::BTreeSet;
+use std::ops::Bound::Included;
 // #[cfg(feature = "web")]
 // use crate::provider::webprovider::Provider;
 
 #[cfg(feature = "local")]
 use crate::provider::localprovider::Provider;
+use web3::types::Transaction;
 
 /// Memory backend with ability to fork another chain from an HTTP provider, storing all state values in a `BTreeMap` in memory.
 #[derive(Clone, Debug)]
 pub struct ForkMemoryBackendOwned {
     /// backend vicinity
     pub vicinity: MemoryVicinity,
-    state: BTreeMap<H160, MemoryAccount>,
+    /// state
+    pub state: BTreeMap<H160, MemoryAccount>,
     archive_state: BTreeMap<U256, BTreeMap<H160, MemoryAccount>>,
     logs: BTreeMap<U256, Vec<Log>>,
-    provider: Provider,
-    local_block_num: U256,
+    /// Web3 provider
+    pub provider: Provider,
+    /// Local block number
+    pub local_block_num: U256,
     tx_history: BTreeMap<H256, TxReceipt>,
 }
 
@@ -160,13 +165,11 @@ impl Backend for ForkMemoryBackendOwned {
         if let Some(acct) = self.state.get(&address) {
             if let Some(store_data) = acct.storage.get(&index) {
                 store_data.clone()
+            } else if !acct.created {
+                self.provider
+                    .get_storage_at(address, index, Some(self.vicinity.block_number))
             } else {
-                if !acct.created {
-                    self.provider
-                        .get_storage_at(address, index, Some(self.vicinity.block_number))
-                } else {
-                    H256::default()
-                }
+                H256::default()
             }
         } else {
             self.provider
@@ -180,6 +183,65 @@ impl Backend for ForkMemoryBackendOwned {
         } else {
             self.provider.get_transaction_receipt(hash)
         }
+    }
+
+    fn logs(
+        &self,
+        from: Option<U256>,
+        to: Option<U256>,
+        addr: Vec<H160>,
+        topics: Vec<H256>,
+    ) -> Vec<web3::types::Log> {
+        let mut logs: Vec<web3::types::Log> = Vec::new();
+        let from_block;
+        if from != None {
+            from_block = from.unwrap();
+        } else {
+            from_block = self.vicinity.block_number.clone();
+        };
+        let to_block;
+        if to != None {
+            to_block = to.unwrap();
+        } else {
+            to_block = self.vicinity.block_number.clone();
+        };
+
+        println!("self logs: {:#?}", self.logs);
+
+        for (_bn, normal_logs) in self.logs.range((Included(from_block), Included(to_block))) {
+            let matched_logs: Vec<&Log> = normal_logs
+                .iter()
+                .filter(|i| {
+                    addr.iter().any(|&a| a == i.address) && topics.iter().any(|&x| x == i.topics[0])
+                })
+                .collect();
+            let parsed: Vec<web3::types::Log> = matched_logs
+                .iter()
+                .map(|l| web3::types::Log {
+                    address: l.address.clone(),
+                    topics: l.topics.clone(),
+                    data: web3::types::Bytes(l.data.clone()),
+                    block_hash: None,
+                    block_number: Some(web3::types::U64::from(
+                        self.vicinity.block_number.clone().as_u64(),
+                    )),
+                    transaction_hash: None,
+                    transaction_index: None,
+                    log_index: None,
+                    transaction_log_index: None,
+                    log_type: None,
+                    removed: Some(false),
+                })
+                .collect();
+            logs.extend(parsed.clone());
+        }
+
+        logs.extend(self.provider.get_logs(from_block, to_block, addr, topics));
+        logs
+    }
+
+    fn tx(&self, hash: H256) -> Transaction {
+        self.provider.get_transaction(hash)
     }
 }
 
@@ -197,10 +259,11 @@ impl ApplyBackend for ForkMemoryBackendOwned {
         I: IntoIterator<Item = (H256, H256)>,
         L: IntoIterator<Item = Log>,
     {
-        let mut tip = false;
-        if block == self.local_block_num {
-            tip = true;
-        }
+        // let mut tip = false;
+        // if block == self.local_block_num {
+        //     tip = true;
+        // }
+        let tip = true;
         for apply in values {
             match apply {
                 Apply::Modify {

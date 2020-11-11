@@ -9,7 +9,7 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cmp::min;
 use core::convert::Infallible;
-use hex;
+
 use primitive_types::{H160, H256, U256};
 use sha3::{Digest, Keccak256};
 
@@ -54,6 +54,8 @@ pub struct CallTrace {
     pub cost: usize,
     /// Output
     pub output: String,
+    /// Logs
+    pub logs: Vec<Log>,
     /// inner calls
     pub inner: Vec<Box<CallTrace>>,
 }
@@ -73,6 +75,8 @@ pub struct StackExecutor<'backend, 'config, B> {
     pub deleted: BTreeSet<H160>,
     /// emitted logs
     pub logs: Vec<Log>,
+    /// Precompile Map
+    pub precompiles: BTreeMap<H160, fn(&[u8], Option<usize>)>,
     /// Precompiles
     pub precompile:
         fn(H160, &[u8], Option<usize>) -> Option<Result<(ExitSucceed, Vec<u8>, usize), ExitError>>,
@@ -92,7 +96,7 @@ pub struct StackExecutor<'backend, 'config, B> {
     pub call_trace: Vec<Box<CallTrace>>,
 }
 
-fn no_precompile(
+fn precompiles(
     _address: H160,
     _input: &[u8],
     _target_gas: Option<usize>,
@@ -103,7 +107,7 @@ fn no_precompile(
 impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
     /// Create a new stack-based executor.
     pub fn new(backend: &'backend B, gas_limit: usize, config: &'config Config) -> Self {
-        Self::new_with_precompile(backend, gas_limit, config, no_precompile)
+        Self::new_with_precompile(backend, gas_limit, config, precompiles)
     }
 
     /// Create a new stack-based executor with given precompiles.
@@ -111,7 +115,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         backend: &'backend B,
         gas_limit: usize,
         config: &'config Config,
-        precompile: fn(
+        precompiles: fn(
             H160,
             &[u8],
             Option<usize>,
@@ -124,7 +128,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
             deleted: BTreeSet::new(),
             config,
             logs: Vec::new(),
-            precompile: precompile,
+            precompile: precompiles,
             is_static: false,
             depth: None,
             pending_txs: Vec::new(),
@@ -132,6 +136,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
             tmp_timestamp: None,
             created_contracts: BTreeSet::new(),
             call_trace: Vec::new(),
+            precompiles: BTreeMap::new(),
         }
     }
 
@@ -159,6 +164,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
             tmp_timestamp: self.tmp_timestamp,
             created_contracts: self.created_contracts.clone(),
             call_trace: Vec::new(),
+            precompiles: self.precompiles.clone(),
         }
     }
 
@@ -179,8 +185,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
     pub fn merge_succeed<'obackend, 'oconfig, OB>(
         &mut self,
         mut substate: StackExecutor<'obackend, 'oconfig, OB>,
-        calltrace: CallTrace,
+        mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
+        calltrace.logs = substate.logs.clone();
         self.call_trace.push(Box::new(calltrace));
         self.logs.append(&mut substate.logs);
         self.deleted.append(&mut substate.deleted);
@@ -200,8 +207,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
     pub fn merge_revert<'obackend, 'oconfig, OB>(
         &mut self,
         mut substate: StackExecutor<'obackend, 'oconfig, OB>,
-        calltrace: CallTrace,
+        mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
+        calltrace.logs = substate.logs.clone();
         self.call_trace.push(Box::new(calltrace));
         self.logs.append(&mut substate.logs);
         self.tmp_bn = substate.tmp_bn;
@@ -214,8 +222,9 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
     pub fn merge_fail<'obackend, 'oconfig, OB>(
         &mut self,
         mut substate: StackExecutor<'obackend, 'oconfig, OB>,
-        calltrace: CallTrace,
+        mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
+        calltrace.logs = substate.logs.clone();
         self.call_trace.push(Box::new(calltrace));
         self.tmp_bn = substate.tmp_bn;
         self.tmp_timestamp = substate.tmp_timestamp;
@@ -247,8 +256,6 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
             Some(gas_limit),
             false,
         );
-
-        // self.call_trace = self.call_trace.inner.clone();
 
         let status;
         match exit {
@@ -413,7 +420,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 
     /// Deconstruct the executor, return state to be applied.
     #[must_use]
-    pub fn  deconstruct(
+    pub fn deconstruct(
         self,
     ) -> (
         impl IntoIterator<Item = Apply<impl IntoIterator<Item = (H256, H256)>>>,
@@ -445,7 +452,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                 address,
                 basic: account.basic,
                 code: account.code,
-                storage: storage,
+                storage,
                 reset_storage: account.reset_storage,
             });
         }
@@ -462,7 +469,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 
     /// Deconstruct the executor, return state to be applied.
     #[must_use]
-    pub fn  deconstruct_fork_only(
+    pub fn deconstruct_fork_only(
         self,
     ) -> (
         impl IntoIterator<Item = Apply<impl IntoIterator<Item = (H256, H256)>>>,
@@ -928,15 +935,25 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         let mut substate = self.substate(gas_limit, is_static);
         substate.account_mut(context.address);
 
+        let mut sig: [u8; 4] = Default::default();
+        let i;
+        if input.len() >= 4 {
+            sig.copy_from_slice(&input.clone()[..4]);
+        }
+
+        if input.len() > 4 {
+            i = hex::encode(&input[4..]);
+        } else {
+            i = hex::encode(Vec::new());
+        }
+
         if let Some(depth) = self.depth {
             if depth + 1 > self.config.call_stack_limit {
-                let mut sig: [u8; 4] = Default::default();
-                sig.copy_from_slice(&input.clone()[..4]);
                 calltrace.success = false;
                 calltrace.addr = code_address;
                 calltrace.created = false;
                 calltrace.function = hex::encode(sig);
-                calltrace.input = hex::encode(input[4..].to_vec());
+                calltrace.input = i;
                 calltrace.cost = substate.used_gas();
                 calltrace.inner.append(&mut substate.call_trace);
                 let _ = self.merge_revert(substate, calltrace);
@@ -948,13 +965,11 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
             match substate.transfer(transfer) {
                 Ok(()) => (),
                 Err(e) => {
-                    let mut sig: [u8; 4] = Default::default();
-                    sig.copy_from_slice(&input.clone()[..4]);
                     calltrace.success = false;
                     calltrace.addr = code_address;
                     calltrace.created = false;
                     calltrace.function = hex::encode(sig);
-                    calltrace.input = hex::encode(input[4..].to_vec());
+                    calltrace.input = i;
                     calltrace.cost = substate.used_gas();
                     calltrace.inner.append(&mut substate.call_trace);
                     let _ = self.merge_revert(substate, calltrace);
@@ -966,13 +981,11 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         if let Some(ret) = (substate.precompile)(code_address, &input, Some(gas_limit)) {
             return match ret {
                 Ok((s, out, cost)) => {
-                    let mut sig: [u8; 4] = Default::default();
-                    sig.copy_from_slice(&input.clone()[..4]);
                     calltrace.success = true;
                     calltrace.addr = code_address;
                     calltrace.created = false;
                     calltrace.function = hex::encode(sig);
-                    calltrace.input = hex::encode(input[4..].to_vec());
+                    calltrace.input = i;
                     calltrace.cost = substate.used_gas();
                     calltrace.inner.append(&mut substate.call_trace);
                     let _ = substate.gasometer.record_cost(cost);
@@ -980,13 +993,11 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                     Capture::Exit((ExitReason::Succeed(s), out))
                 }
                 Err(e) => {
-                    let mut sig: [u8; 4] = Default::default();
-                    sig.copy_from_slice(&input.clone()[..4]);
                     calltrace.success = false;
                     calltrace.addr = code_address;
                     calltrace.created = false;
                     calltrace.function = hex::encode(sig);
-                    calltrace.input = hex::encode(input[4..].to_vec());
+                    calltrace.input = i;
                     calltrace.cost = substate.used_gas();
                     calltrace.inner.append(&mut substate.call_trace);
                     let _ = self.merge_fail(substate, calltrace);
@@ -1012,13 +1023,11 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 
         match reason {
             ExitReason::Succeed(s) => {
-                let mut sig: [u8; 4] = Default::default();
-                sig.copy_from_slice(&input.clone()[..4]);
                 calltrace.success = true;
                 calltrace.addr = code_address;
                 calltrace.created = false;
                 calltrace.function = hex::encode(sig);
-                calltrace.input = hex::encode(input[4..].to_vec());
+                calltrace.input = i;
                 calltrace.cost = substate.used_gas();
                 calltrace.output = hex::encode(runtime.machine.return_value());
                 calltrace.inner.append(&mut substate.call_trace);
@@ -1026,13 +1035,11 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                 Capture::Exit((ExitReason::Succeed(s), runtime.machine().return_value()))
             }
             ExitReason::Error(e) => {
-                let mut sig: [u8; 4] = Default::default();
-                sig.copy_from_slice(&input.clone()[..4]);
                 calltrace.success = false;
                 calltrace.addr = code_address;
                 calltrace.created = false;
                 calltrace.function = hex::encode(sig);
-                calltrace.input = hex::encode(input[4..].to_vec());
+                calltrace.input = i;
                 calltrace.cost = substate.used_gas();
                 calltrace.output = hex::encode(runtime.machine.return_value());
                 calltrace.inner.append(&mut substate.call_trace);
@@ -1040,13 +1047,11 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                 Capture::Exit((ExitReason::Error(e), Vec::new()))
             }
             ExitReason::Revert(e) => {
-                let mut sig: [u8; 4] = Default::default();
-                sig.copy_from_slice(&input.clone()[..4]);
                 calltrace.success = false;
                 calltrace.addr = code_address;
                 calltrace.created = false;
                 calltrace.function = hex::encode(sig);
-                calltrace.input = hex::encode(input[4..].to_vec());
+                calltrace.input = i;
                 calltrace.cost = substate.used_gas();
                 calltrace.output = hex::encode(runtime.machine.return_value());
                 calltrace.inner.append(&mut substate.call_trace);
@@ -1188,17 +1193,15 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
                 storage_data.clone()
             } else if let Some(storage_data) = acct.original_storage.get(&index) {
                 storage_data.clone()
+            } else if self.created_contracts.contains(&address) {
+                // this contract was created by self, dont call backend for it
+                H256::default()
             } else {
-                if self.created_contracts.contains(&address) {
-                    // this contract was created by self, dont call backend for it
-                    H256::default()
-                } else {
-                    let storage_data = self.backend.storage(address, index);
-                    acct.storage.insert(index, storage_data);
-                    acct.original_storage.insert(index, storage_data);
-                    *acct = acct.clone();
-                    storage_data
-                }
+                let storage_data = self.backend.storage(address, index);
+                acct.storage.insert(index, storage_data);
+                acct.original_storage.insert(index, storage_data);
+                *acct = acct.clone();
+                storage_data
             }
         } else {
             let b = self.backend.basic(address);
@@ -1225,15 +1228,13 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
         if let Some(account) = self.state.get_mut(&address) {
             if account.reset_storage {
                 return H256::default();
+            } else if let Some(strg) = account.original_storage.get(&index) {
+                return strg.clone();
             } else {
-                if let Some(strg) = account.original_storage.get(&index) {
-                    return strg.clone();
-                } else {
-                    let storage = self.backend.storage(address, index);
-                    account.original_storage.insert(index, storage);
-                    *account = account.clone();
-                    return storage;
-                }
+                let storage = self.backend.storage(address, index);
+                account.original_storage.insert(index, storage);
+                *account = account.clone();
+                return storage;
             }
         }
         if self.created_contracts.contains(&address) {
@@ -1262,17 +1263,15 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
     fn exists(&self, address: H160) -> bool {
         if self.config.empty_considered_exists {
             self.state.get(&address).is_some() || self.backend.exists(address)
+        } else if let Some(account) = self.state.get(&address) {
+            account.basic.nonce != U256::zero()
+                || account.basic.balance != U256::zero()
+                || account.code.as_ref().map(|c| c.len() != 0).unwrap_or(false)
+                || self.backend.code(address).len() != 0
         } else {
-            if let Some(account) = self.state.get(&address) {
-                account.basic.nonce != U256::zero()
-                    || account.basic.balance != U256::zero()
-                    || account.code.as_ref().map(|c| c.len() != 0).unwrap_or(false)
-                    || self.backend.code(address).len() != 0
-            } else {
-                self.backend.basic(address).nonce != U256::zero()
-                    || self.backend.basic(address).balance != U256::zero()
-                    || self.backend.code(address).len() != 0
-            }
+            self.backend.basic(address).nonce != U256::zero()
+                || self.backend.basic(address).balance != U256::zero()
+                || self.backend.code(address).len() != 0
         }
     }
 
@@ -1341,7 +1340,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
 
         self.transfer(Transfer {
             source: address,
-            target: target,
+            target,
             value: balance,
         })?;
         self.account_mut(address).basic.balance = U256::zero();
