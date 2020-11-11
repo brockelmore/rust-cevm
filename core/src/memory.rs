@@ -80,13 +80,13 @@ impl Memory {
         let mut ret = Vec::new();
         ret.resize(size, 0);
 
-        for index in 0..size {
+        for (index, ri) in ret.iter_mut().enumerate() {
             let position = offset + index;
             if position >= self.data.len() {
                 break;
             }
 
-            ret[index] = self.data[position];
+            *ri = self.data[position];
         }
 
         ret
