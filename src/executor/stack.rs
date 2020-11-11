@@ -1085,6 +1085,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
             .balance
     }
 
+    #[allow(clippy::map_entry)]
     fn code_size(&mut self, address: H160) -> U256 {
         if address == "7109709ECfa91a80626fF3989D68f67F5b1DD12D".parse().unwrap() {
             return U256::from(100);
@@ -1124,6 +1125,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
         }
     }
 
+    #[allow(clippy::map_entry)]
     fn code_hash(&mut self, address: H160) -> H256 {
         if self.state.contains_key(&address) {
             let acct = self.state.get_mut(&address).unwrap();
@@ -1151,6 +1153,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
         }
     }
 
+    #[allow(clippy::map_entry)]
     fn code(&mut self, address: H160) -> Vec<u8> {
         if self.state.contains_key(&address) {
             let acct = self.state.get_mut(&address).unwrap();
@@ -1179,6 +1182,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
         }
     }
 
+    #[allow(clippy::map_entry)]
     fn storage(&mut self, address: H160, index: H256) -> H256 {
         if self.state.contains_key(&address) {
             let acct = self.state.get_mut(&address).unwrap();
