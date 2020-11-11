@@ -6,7 +6,7 @@ use evm::{
 };
 use parity_crypto::publickey::public_to_address;
 use std::collections::BTreeMap;
-
+use crate::shared::Action;
 use web3::types::*;
 
 #[derive(Clone)]
@@ -44,102 +44,84 @@ impl EVMService {
         config.create_contract_limit = None;
         Self { config, backend }
     }
+
+    pub fn update_vicinity_for_tx(&mut self, msg: &EthRequest, sim: &Option<Transaction>) {
+        if let Some(bn) = msg.blockNumber(&sim) {
+            if bn < self.backend.vicinity.block_number {
+                self.backend.vicinity.block_number = bn;
+            }
+        }
+        if let Some(origin) = msg.origin(&sim) {
+            self.backend.vicinity.origin = origin;
+        }
+        if let Some(gp) = msg.gas_price(&sim) {
+            self.backend.vicinity.gas_price = gp;
+        }
+    }
 }
 
 impl actix::prelude::Handler<EthRequest> for EVMService {
     type Result = EthResponse;
 
     fn handle(&mut self, msg: EthRequest, _ctx: &mut SyncContext<Self>) -> Self::Result {
-        // update gas price
-        let mut sim_tx = None;
+        // store backup of current state
         let timestamp = self.backend.vicinity.block_timestamp;
         let curr_block = self.backend.vicinity.block_number;
+
+        // get sim if necessary
+        let mut sim_tx = None;
         match msg {
-            EthRequest::eth_getBalance(_who, ref bn) => match bn {
-                Some(block) => {
-                    if block < &self.backend.vicinity.block_number {
-                        self.backend.vicinity.block_number = *block;
-                    }
-                }
-                _ => {}
-            },
-            EthRequest::eth_getStorageAt(_who, _slot, ref bn) => match bn {
-                Some(block) => {
-                    if block < &self.backend.vicinity.block_number {
-                        self.backend.vicinity.block_number = *block;
-                    }
-                }
-                _ => {}
-            },
-            EthRequest::eth_getTransactionCount(_who, ref bn) => match bn {
-                Some(block) => {
-                    if block < &self.backend.vicinity.block_number {
-                        self.backend.vicinity.block_number = *block;
-                    }
-                }
-                _ => {}
-            },
-            EthRequest::eth_getCode(_who, ref bn) => match bn {
-                Some(block) => {
-                    if block < &self.backend.vicinity.block_number {
-                        self.backend.vicinity.block_number = *block;
-                    }
-                }
-                _ => {}
-            },
-            EthRequest::eth_sendTransaction(ref tx, ref _opts) => {
-                self.backend.vicinity.origin = tx.from;
-                self.backend.vicinity.gas_price = tx.gas_price.unwrap_or(U256::from(1));
-            }
-            EthRequest::eth_sendRawTransaction(ref bytes) => {
-                let tx: UnverifiedTransaction = rlp::decode(&bytes).unwrap();
-                let sender = public_to_address(&tx.recover_public().unwrap());
-                self.backend.vicinity.gas_price = tx.unsigned.gas_price;
-                self.backend.vicinity.origin = sender;
-            }
-            EthRequest::eth_call(ref tx, ref bn) => {
-                self.backend.vicinity.gas_price = tx.gas_price.unwrap_or(U256::from(1));
-                self.backend.vicinity.origin = tx.from;
-                match bn {
-                    Some(block) => {
-                        if block < &self.backend.vicinity.block_number {
-                            self.backend.vicinity.block_number = *block;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            EthRequest::eth_sim(ref tx_hash, ref in_place, ref _opts) => {
-                let tx = self.backend.tx(*tx_hash);
-                self.backend.vicinity.gas_price = tx.gas_price;
-                self.backend.vicinity.origin = tx.from;
-                self.backend.vicinity.chain_id = U256::from(1);
-                if *in_place && tx.block_number == None {
-                    return EthResponse::eth_unimplemented;
-                }
-                match tx.block_number {
-                    Some(block) => {
-                        self.backend.vicinity.block_number = U256::from(block.clone().as_u64() - 1);
-                        let full_block = self
-                            .backend
-                            .provider
-                            .get_block_by_number(self.backend.vicinity.block_number);
-                        self.backend.vicinity.block_timestamp = full_block.timestamp;
-                    }
-                    _ => {}
-                }
-                sim_tx = Some(tx);
+            EthRequest::eth_sim(ref tx_hash, ref _in_place, ref _opts) => {
+                sim_tx = Some(self.backend.tx(*tx_hash));
+                let full_block = self
+                    .backend
+                    .provider
+                    .get_block_by_number(self.backend.vicinity.block_number);
+                self.backend.vicinity.block_timestamp = full_block.timestamp;
             }
             _ => {}
         }
 
+        // update vicinity params
+        self.update_vicinity_for_tx(&msg, &sim_tx);
+
+        // initialize an executor w/ the backend
         let mut exec = StackExecutor::new(
             &self.backend,
             self.backend.vicinity.block_gas_limit.clone().as_usize(),
             &self.config,
         );
 
+        // default to committing
         let mut commit = true;
+
+        let act = |tx: &TransactionRequest| {
+            if tx.to != None {
+                Action::Call(tx.to.unwrap())
+            } else {
+                Action::Create
+            }
+        };
+
+        let mut as_unverified = |tx: &TransactionRequest, action: &Action| {
+            let Bytes(raw) = tx.data.clone().unwrap();
+            UnverifiedTransaction {
+                unsigned: SelfTransaction {
+                    nonce: tx.nonce.unwrap_or(exec.nonce(tx.from)),
+                    gas_price: tx.gas_price.unwrap(),
+                    gas: tx.gas.unwrap(),
+                    action: action.clone(),
+                    value: tx.value.unwrap_or(U256::zero()),
+                    data: raw,
+                },
+                v: 0,
+                r: U256::one(),
+                s: U256::one(),
+                hash: H256::zero(),
+            }
+        };
+
+
         let to_send = match msg {
             EthRequest::eth_accounts => EthResponse::eth_accounts(Vec::new()),
             EthRequest::eth_blockNumber => EthResponse::eth_blockNumber(exec.block_number()),
@@ -154,52 +136,37 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
             }
             EthRequest::eth_getCode(who, _bn) => EthResponse::eth_getCode(exec.code(who)),
             EthRequest::eth_sendTransaction(tx, options) => {
-                let action;
-                if tx.to != None {
-                    action = crate::shared::Action::Call(tx.to.unwrap());
-                } else {
-                    action = crate::shared::Action::Create;
-                }
-                let Bytes(raw) = tx.data.unwrap();
-                let selftx = UnverifiedTransaction {
-                    unsigned: SelfTransaction {
-                        nonce: tx.nonce.unwrap_or(exec.nonce(tx.from)),
-                        gas_price: tx.gas_price.unwrap(),
-                        gas: tx.gas.unwrap(),
-                        action,
-                        value: tx.value.unwrap_or(U256::zero()),
-                        data: raw,
-                    },
-                    v: 0,
-                    r: U256::one(),
-                    s: U256::one(),
-                    hash: H256::zero(),
-                };
-                let selftx = selftx.compute_hash();
-                let hash = selftx.hash;
+                let action = act(&tx);
+                let uv_tx = as_unverified(&tx, &action);
+                let uv_tx = uv_tx.compute_hash();
+                let hash = uv_tx.hash;
+
                 let data;
                 let trace;
-                if tx.to != None {
-                    let (_r, d, tr) = exec.transact_call(
-                        hash,
-                        tx.from,
-                        tx.to.unwrap(),
-                        tx.value.unwrap_or(U256::zero()),
-                        selftx.unsigned.data,
-                        tx.gas.unwrap().as_usize(),
-                    );
-                    data = d;
-                    trace = tr;
-                } else {
-                    let (_r, d, tr) = exec.transact_create(
-                        hash,
-                        tx.from,
-                        tx.value.unwrap_or(U256::zero()), // value: 0 eth
-                        selftx.unsigned.data,             // data
-                        tx.gas.unwrap().as_usize(),       // gas_limit
-                    );
-                    data = d.unwrap_or(H160::zero()).as_bytes().to_vec();
-                    trace = tr;
+                match action {
+                    Action::Call(_) => {
+                        let (_tx_rec, tx_data, tx_trace) = exec.transact_call(
+                            hash,
+                            tx.from,
+                            tx.to.unwrap(),
+                            tx.value.unwrap_or(U256::zero()),
+                            uv_tx.unsigned.data,
+                            tx.gas.unwrap().as_usize(),
+                        );
+                        data = tx_data;
+                        trace = tx_trace;
+                    }
+                    Action::Create => {
+                        let (_tx_rec, tx_data, tx_trace) = exec.transact_create(
+                            hash,
+                            tx.from,
+                            tx.value.unwrap_or(U256::zero()), // value: 0 eth
+                            uv_tx.unsigned.data,              // data
+                            tx.gas.unwrap().as_usize(),       // gas_limit
+                        );
+                        data = tx_data.unwrap_or(H160::zero()).as_bytes().to_vec();
+                        trace = tx_trace;
+                    }
                 }
 
                 let mut re = EthResponse::eth_sendTransaction {
@@ -210,14 +177,14 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                     trace: None,
                 };
 
-                let (d, l, r, t) = match re {
+                let (tx_data, tx_logs, tx_rec, tx_trace) = match re {
                     EthResponse::eth_sendTransaction {
                         hash: _,
-                        data: ref mut d,
+                        data: ref mut tx_data,
                         ref mut logs,
                         ref mut recs,
-                        trace: ref mut tr,
-                    } => (d, logs, recs, tr),
+                        trace: ref mut tx_trace,
+                    } => (tx_data, logs, recs, tx_trace),
                     _ => unreachable!(),
                 };
 
@@ -249,17 +216,18 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                     }
                 }
                 if with_logs {
-                    *l = Some(exec.logs.clone());
+                    *tx_logs = Some(exec.logs.clone());
                 }
                 if with_return {
-                    *d = Some(data);
+                    *tx_data = Some(data);
                 }
                 if with_receipt {
-                    *r = Some(exec.pending_txs.clone());
+                    *tx_rec = Some(exec.pending_txs.clone());
                 }
                 if with_trace {
-                    *t = Some(trace);
+                    *tx_trace = Some(trace);
                 }
+
                 re
             }
             EthRequest::eth_sendRawTransaction(bytes) => {
@@ -277,7 +245,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                         );
                     }
                     crate::shared::Action::Call(addr) => {
-                        let (_r, _d, _tr) = exec.transact_call(
+                        let (_tx_rec, _tx_data, _tr) = exec.transact_call(
                             hash,
                             sender,
                             addr,
@@ -290,92 +258,61 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                 EthResponse::eth_sendRawTransaction(hash)
             }
             EthRequest::eth_call(tx, _bn) => {
-                let action;
-                if tx.to != None {
-                    action = crate::shared::Action::Call(tx.to.unwrap());
-                } else {
-                    action = crate::shared::Action::Create;
-                }
-                let Bytes(raw) = tx.data.unwrap();
-                let selftx = UnverifiedTransaction {
-                    unsigned: SelfTransaction {
-                        nonce: tx.nonce.unwrap_or(exec.nonce(tx.from)),
-                        gas_price: tx.gas_price.unwrap_or(U256::zero()),
-                        gas: tx.gas.unwrap_or(self.backend.vicinity.block_gas_limit),
-                        action,
-                        value: tx.value.unwrap_or(U256::zero()),
-                        data: raw,
-                    },
-                    v: 0,
-                    r: U256::one(),
-                    s: U256::one(),
-                    hash: H256::zero(),
-                };
-                let selftx = selftx.compute_hash();
-                let hash = selftx.hash;
+                let action = act(&tx);
+                let uv_tx = as_unverified(&tx, &action);
+                let uv_tx = uv_tx.compute_hash();
+                let hash = uv_tx.hash;
                 let data;
-                if tx.to != None {
-                    let (_r, d, _tr) = exec.transact_call(
-                        hash,
-                        tx.from,
-                        tx.to.unwrap(),
-                        tx.value.unwrap_or(U256::zero()),
-                        selftx.unsigned.data,
-                        tx.gas
-                            .unwrap_or(self.backend.vicinity.block_gas_limit)
-                            .as_usize(),
-                    );
-                    data = d;
-                } else {
-                    let (_r, d, _tr) = exec.transact_create(
-                        hash,
-                        tx.from,
-                        tx.value.unwrap_or(U256::zero()), // value: 0 eth
-                        selftx.unsigned.data,             // data
-                        tx.gas
-                            .unwrap_or(self.backend.vicinity.block_gas_limit)
-                            .as_usize(), // gas_limit
-                    );
-                    data = d.unwrap().as_bytes().to_vec();
+                match action {
+                    Action::Call(_) => {
+                        let (_tx_rec, tx_data, _tr) = exec.transact_call(
+                            hash,
+                            tx.from,
+                            tx.to.unwrap(),
+                            tx.value.unwrap_or(U256::zero()),
+                            uv_tx.unsigned.data,
+                            tx.gas
+                                .unwrap_or(self.backend.vicinity.block_gas_limit)
+                                .as_usize(),
+                        );
+                        data = tx_data;
+                    }
+                    Action::Create => {
+                        let (_tx_rec, tx_data, _tr) = exec.transact_create(
+                            hash,
+                            tx.from,
+                            tx.value.unwrap_or(U256::zero()), // value: 0 eth
+                            uv_tx.unsigned.data,             // data
+                            tx.gas
+                                .unwrap_or(self.backend.vicinity.block_gas_limit)
+                                .as_usize(), // gas_limit
+                        );
+                        data = tx_data.unwrap().as_bytes().to_vec();
+                    }
                 }
+                // no commit on call
                 commit = false;
                 EthResponse::eth_call(data)
             }
             EthRequest::eth_tmpDeploy(tx, _options) => {
-                let action = crate::shared::Action::Create;
-                let Bytes(raw) = tx.data.unwrap();
-                let selftx = UnverifiedTransaction {
-                    unsigned: SelfTransaction {
-                        nonce: tx.nonce.unwrap_or(exec.nonce(tx.from)),
-                        gas_price: tx.gas_price.unwrap(),
-                        gas: tx.gas.unwrap(),
-                        action,
-                        value: tx.value.unwrap_or(U256::zero()),
-                        data: raw,
-                    },
-                    v: 0,
-                    r: U256::one(),
-                    s: U256::one(),
-                    hash: H256::zero(),
-                };
-                let selftx = selftx.compute_hash();
-                let hash = selftx.hash;
+                let action = Action::Create;
+                let uv_tx = as_unverified(&tx, &action);
+                let uv_tx = uv_tx.compute_hash();
+                let hash = uv_tx.hash;
                 let data;
-                let (_r, d, _tr) = exec.transact_create(
+                let (_tx_rec, tx_data, _tr) = exec.transact_create(
                     hash,
                     tx.from,
                     tx.value.unwrap_or(U256::zero()), // value: 0 eth
-                    selftx.unsigned.data,             // data
+                    uv_tx.unsigned.data,             // data
                     tx.gas.unwrap().as_usize(),       // gas_limit
                 );
-                let addr = d.unwrap();
+                let addr = tx_data.unwrap();
                 data = exec.code(addr);
+                // no commit, tmp deployment
                 commit = false;
                 EthResponse::eth_call(data)
             }
-            // EthRequest::eth_getBlockByHash(hash, txs) => {
-            //     return EthResponse::eth_getBlockByHash;
-            // }
             EthRequest::eth_getBlockByNumber(bn, txs) => {
                 let mut tmp_bn = bn;
                 if bn > self.backend.vicinity.block_number {
@@ -404,10 +341,6 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                     )
                 }
             }
-            // EthRequest::eth_getTransactionByHash(hash) => {
-            //
-            //     return EthResponse::eth_getTransactionByHash;
-            // }
             EthRequest::eth_chainId => EthResponse::eth_chainId(self.backend.vicinity.chain_id),
             EthRequest::eth_getTransactionReceipt(hash) => {
                 EthResponse::eth_getTransactionReceipt(self.backend.tx_receipt(hash))
@@ -416,100 +349,96 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                 let tx = sim_tx.unwrap();
 
                 if in_place {
+                    // would need to get txs in block up to tx.index, sim all those, then execute
+                    // this one.
                     unimplemented!();
+                }
+
+                let data;
+                let trace;
+                let Bytes(raw) = tx.input;
+                if tx.to != None {
+                    let (_tx_rec, tx_data, tx_trace) = exec.transact_call(
+                        tx.hash,
+                        tx.from,
+                        tx.to.unwrap(),
+                        tx.value,
+                        raw,
+                        tx.gas.as_usize(),
+                    );
+                    data = tx_data;
+                    trace = tx_trace;
                 } else {
-                    let action;
-                    if tx.to != None {
-                        action = crate::shared::Action::Call(tx.to.unwrap());
-                    } else {
-                        action = crate::shared::Action::Create;
-                    }
-                    let data;
-                    let trace;
-                    let Bytes(raw) = tx.input;
-                    if tx.to != None {
-                        let (_r, d, tr) = exec.transact_call(
-                            tx.hash,
-                            tx.from,
-                            tx.to.unwrap(),
-                            tx.value,
-                            raw,
-                            tx.gas.as_usize(),
-                        );
-                        data = d;
-                        trace = tr;
-                    } else {
-                        let (_r, d, tr) = exec.transact_create(
-                            tx.hash,
-                            tx.from,
-                            tx.value,          // value: 0 eth
-                            raw,               // data
-                            tx.gas.as_usize(), // gas_limit
-                        );
-                        data = d.unwrap_or(H160::zero()).as_bytes().to_vec();
-                        trace = tr;
-                    }
+                    let (_tx_rec, tx_data, tx_trace) = exec.transact_create(
+                        tx.hash,
+                        tx.from,
+                        tx.value,          // value: 0 eth
+                        raw,               // data
+                        tx.gas.as_usize(), // gas_limit
+                    );
+                    data = tx_data.unwrap_or(H160::zero()).as_bytes().to_vec();
+                    trace = tx_trace;
+                }
 
-                    let mut re = EthResponse::eth_sendTransaction {
-                        hash: tx.hash,
-                        data: None,
-                        logs: None,
-                        recs: None,
-                        trace: None,
-                    };
+                let mut re = EthResponse::eth_sendTransaction {
+                    hash: tx.hash,
+                    data: None,
+                    logs: None,
+                    recs: None,
+                    trace: None,
+                };
 
-                    let (d, l, r, t) = match re {
-                        EthResponse::eth_sendTransaction {
-                            hash: _,
-                            data: ref mut d,
-                            ref mut logs,
-                            ref mut recs,
-                            trace: ref mut tr,
-                        } => (d, logs, recs, tr),
-                        _ => unreachable!(),
-                    };
+                let (tx_data, tx_logs, tx_rec, tx_trace) = match re {
+                    EthResponse::eth_sendTransaction {
+                        hash: _,
+                        data: ref mut tx_data,
+                        ref mut logs,
+                        ref mut recs,
+                        trace: ref mut tx_trace,
+                    } => (tx_data, logs, recs, tx_trace),
+                    _ => unreachable!(),
+                };
 
-                    let mut with_logs = false;
-                    let mut with_return = false;
-                    let mut with_receipt = false;
-                    let mut with_trace = false;
-                    println!("options: {:?}", options);
-                    if let Some(opts) = options {
-                        for option in opts.into_iter() {
-                            match &*option {
-                                "logs" => {
-                                    with_logs = true;
-                                }
-                                "return" => {
-                                    with_return = true;
-                                }
-                                "receipt" => {
-                                    with_receipt = true;
-                                }
-                                "trace" => {
-                                    with_trace = true;
-                                }
-                                "no_commit" => {
-                                    commit = false;
-                                }
-                                _ => {}
+                let mut with_logs = false;
+                let mut with_return = false;
+                let mut with_receipt = false;
+                let mut with_trace = false;
+                println!("options: {:?}", options);
+                if let Some(opts) = options {
+                    for option in opts.into_iter() {
+                        match &*option {
+                            "logs" => {
+                                with_logs = true;
                             }
+                            "return" => {
+                                with_return = true;
+                            }
+                            "receipt" => {
+                                with_receipt = true;
+                            }
+                            "trace" => {
+                                with_trace = true;
+                            }
+                            "no_commit" => {
+                                commit = false;
+                            }
+                            _ => {}
                         }
                     }
-                    if with_logs {
-                        *l = Some(exec.logs.clone());
-                    }
-                    if with_return {
-                        *d = Some(data);
-                    }
-                    if with_receipt {
-                        *r = Some(exec.pending_txs.clone());
-                    }
-                    if with_trace {
-                        *t = Some(trace);
-                    }
-                    re
                 }
+                if with_logs {
+                    *tx_logs = Some(exec.logs.clone());
+                }
+                if with_return {
+                    *tx_data = Some(data);
+                }
+                if with_receipt {
+                    *tx_rec = Some(exec.pending_txs.clone());
+                }
+                if with_trace {
+                    *tx_trace = Some(trace);
+                }
+                re
             }
             EthRequest::eth_getLogs(from_bn, to_bn, addr, topics) => {
                 EthResponse::eth_getLogs(self.backend.logs(from_bn, to_bn, addr, topics))
@@ -520,6 +449,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
             }
         };
 
+        // if we are committing to backend, deconstruct, else, only keep fork info
         if commit {
             let (applies, logs, recs, created) = exec.deconstruct();
             self.backend.apply(
@@ -543,10 +473,13 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
             );
         }
 
+        // increase local block number for front end testing
         self.backend.local_block_num += U256::from(1);
+
+        // reset vicinity to backups
         self.backend.vicinity.block_number = curr_block;
         self.backend.vicinity.block_timestamp = timestamp;
-        self.backend.vicinity.chain_id = U256::from(1001);
+        self.backend.vicinity.chain_id = U256::from(1337);
         to_send
     }
 }

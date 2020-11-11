@@ -1,13 +1,13 @@
 #![allow(non_camel_case_types)]
 use actix::prelude::*;
-use evm::backend::memory::TxReceipt;
+use evm::backend::{ForkMemoryBackendOwned, memory::TxReceipt, Backend};
 use evm::executor::CallTrace;
 use primitive_types::{H160, H256, U256};
 use serde::{Deserialize, Serialize};
 use web3::types::{TransactionReceipt, TransactionRequest};
 
 use hash::keccak;
-use parity_crypto::publickey::{recover, Public, Signature};
+use parity_crypto::publickey::{recover, Public, Signature, public_to_address};
 use rlp::{self, DecoderError, Encodable, Rlp, RlpStream};
 use std::ops::Deref;
 use web3::types::*;
@@ -93,6 +93,92 @@ pub enum EthRequest {
     eth_getLogs(Option<U256>, Option<U256>, Vec<H160>, Vec<H256>),
     eth_chainId,
     eth_sim(H256, bool, Option<Vec<String>>),
+}
+
+impl EthRequest {
+    pub fn blockNumber(&self, sim: &Option<Transaction>) -> Option<U256> {
+        match self {
+            EthRequest::eth_getBalance(_addr, bn) => *bn,
+            EthRequest::eth_getStorageAt(_addr, _slot, bn) => *bn,
+            EthRequest::eth_getTransactionCount(_addr, bn) => *bn,
+            EthRequest::eth_call(_tx, bn) => *bn,
+            EthRequest::eth_getCode(_addr, bn) => *bn,
+            EthRequest::eth_sim(_tx_hash, _in_place, _opts) => {
+                match sim {
+                    Some(s) => {
+                        match s.block_number {
+                            Some(bn) => {
+                                Some(U256::from((bn - 1).as_u64()))
+                            }
+                            None => None
+                        }
+                    }
+                    None => None
+                }
+            }
+            _ => None,
+        }
+    }
+    pub fn origin(&self, sim: &Option<Transaction>) -> Option<H160> {
+        match self {
+            EthRequest::eth_sendTransaction(tx, _opts) => Some(tx.from),
+            EthRequest::eth_sendRawTransaction(bytes) => {
+                let tx: UnverifiedTransaction = rlp::decode(&bytes).unwrap();
+                let sender = public_to_address(&tx.recover_public().unwrap());
+                Some(sender)
+            },
+            EthRequest::eth_call(tx, _bn) => Some(tx.from),
+            EthRequest::eth_sim(_tx_hash, _in_place, _opts) => {
+                match sim {
+                    Some(s) => {
+                        Some(s.from)
+                    }
+                    None => None
+                }
+            }
+            _ => None,
+        }
+    }
+    pub fn gas_price(&self, sim: &Option<Transaction>) -> Option<U256> {
+        match self {
+            EthRequest::eth_sendTransaction(tx, _opts) => tx.gas_price,
+            EthRequest::eth_sendRawTransaction(bytes) => {
+                let tx: UnverifiedTransaction = rlp::decode(&bytes).unwrap();
+                Some(tx.unsigned.gas_price)
+            },
+            EthRequest::eth_call(tx, _bn) => tx.gas_price,
+            EthRequest::eth_sim(_tx_hash, _in_place, _opts) => {
+                match sim {
+                    Some(s) => {
+                        Some(s.gas_price)
+                    }
+                    None => None
+                }
+            }
+            _ => None,
+        }
+    }
+    pub fn chainId(&self) -> Option<U256> {
+        match self {
+            EthRequest::eth_sim(_tx_hash, _in_place, _opts) => Some(U256::from(1)),
+            _ => None,
+        }
+    }
+    pub fn action(&self) -> Option<crate::shared::Action> {
+        let act = |tx: &TransactionRequest| {
+            if tx.to != None {
+                Some(crate::shared::Action::Call(tx.to.unwrap()))
+            } else {
+                Some(crate::shared::Action::Create)
+            }
+        };
+        match self {
+            EthRequest::eth_sendTransaction(tx, _options) => {
+                act(tx)
+            }
+            _ => None
+        }
+    }
 }
 
 #[derive(MessageResponse, Serialize, Deserialize, Debug, Clone)]
@@ -284,6 +370,26 @@ impl EthResponse {
                 recs,
                 trace,
             } => Some((hash, data, logs, recs, trace)),
+            _ => None,
+        }
+    }
+
+    pub fn tx_info(
+        self,
+    ) -> Option<(
+        Option<Vec<u8>>,
+        Option<Vec<evm::backend::Log>>,
+        Option<Vec<TxReceipt>>,
+        Option<Vec<CallTrace>>,
+    )> {
+        match self {
+            EthResponse::eth_sendTransaction {
+                hash,
+                data,
+                logs,
+                recs,
+                trace,
+            } => Some((data, logs, recs, trace)),
             _ => None,
         }
     }
