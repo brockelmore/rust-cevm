@@ -173,23 +173,23 @@ impl EthResponse {
             EthResponse::eth_sendRawTransaction(hash) => Some(hash),
             EthResponse::eth_sendTransaction {
                 hash,
-                data,
-                logs,
-                recs,
-                trace,
+                data: _,
+                logs: _,
+                recs: _,
+                trace: _,
             } => Some(hash),
             _ => None,
         }
     }
     pub fn block_txhashes(self) -> Option<web3::types::Block<web3::types::H256>> {
         match self {
-            EthResponse::eth_getBlock(notxs, txs) => notxs,
+            EthResponse::eth_getBlock(notxs, _txs) => notxs,
             _ => None,
         }
     }
     pub fn block_txs(self) -> Option<web3::types::Block<web3::types::Transaction>> {
         match self {
-            EthResponse::eth_getBlock(notxs, txs) => txs,
+            EthResponse::eth_getBlock(_notxs, txs) => txs,
             _ => None,
         }
     }
@@ -216,11 +216,11 @@ impl EthResponse {
     pub fn tx_receipts(self) -> Option<Vec<TxReceipt>> {
         match self {
             EthResponse::eth_sendTransaction {
-                hash,
-                data,
-                logs,
+                hash: _,
+                data: _,
+                logs: _,
                 recs,
-                trace,
+                trace: _,
             } => recs,
             _ => None,
         }
@@ -228,11 +228,11 @@ impl EthResponse {
     pub fn tx_logs(self) -> Option<Vec<evm::backend::Log>> {
         match self {
             EthResponse::eth_sendTransaction {
-                hash,
-                data,
+                hash: _,
+                data: _,
                 logs,
-                recs,
-                trace,
+                recs: _,
+                trace: _,
             } => logs,
             _ => None,
         }
@@ -246,10 +246,10 @@ impl EthResponse {
     pub fn tx_trace(self) -> Option<Vec<CallTrace>> {
         match self {
             EthResponse::eth_sendTransaction {
-                hash,
-                data,
-                logs,
-                recs,
+                hash: _,
+                data: _,
+                logs: _,
+                recs: _,
                 trace,
             } => trace,
             _ => None,
@@ -258,11 +258,11 @@ impl EthResponse {
     pub fn tx_data(self) -> Option<Vec<u8>> {
         match self {
             EthResponse::eth_sendTransaction {
-                hash,
+                hash: _,
                 data,
-                logs,
-                recs,
-                trace,
+                logs: _,
+                recs: _,
+                trace: _,
             } => data,
             _ => None,
         }

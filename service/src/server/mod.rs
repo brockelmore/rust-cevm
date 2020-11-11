@@ -78,7 +78,7 @@ pub async fn response_router(
     }
 }
 
-pub async fn options_process(req: Request<Body>) -> Result<Response<Body>> {
+pub async fn options_process(_req: Request<Body>) -> Result<Response<Body>> {
     Ok(Response::builder()
         .header("Access-Control-Allow-Origin", "*")
         .header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
@@ -103,7 +103,7 @@ pub async fn evm_process(
         e.to_string()
     });
     // let id: u64 = id.parse().unwrap();
-    let mut f;
+    let f;
     let res;
     match method.as_ref() {
         "eth_accounts" => {
@@ -416,7 +416,7 @@ pub async fn evm_process(
                 });
             let result = evm.send(EthRequest::eth_getTransactionReceipt(hash)).await;
             res = result.unwrap_or(EthResponse::eth_unimplemented);
-            let rec = res.clone().tx().unwrap().clone();
+            let rec = res.tx().unwrap();
             let bh = H256::random();
             let rec = web3::types::TransactionReceipt {
                 transaction_hash: hash,
@@ -426,7 +426,7 @@ pub async fn evm_process(
                 cumulative_gas_used: U256::from(rec.cumulative_gas_used),
                 gas_used: Some(U256::from(rec.gas_used)),
                 contract_address: {
-                    if rec.contract_addresses.len() > 0 {
+                    if !rec.contract_addresses.is_empty() {
                         Some(*rec.contract_addresses.iter().next().unwrap())
                     } else {
                         None
@@ -437,7 +437,7 @@ pub async fn evm_process(
                         .iter()
                         .enumerate()
                         .map(|(i, l)| web3::types::Log {
-                            address: l.address.clone(),
+                            address: l.address,
                             topics: l.topics.clone(),
                             data: web3::types::Bytes(l.data.clone()),
                             block_hash: Some(bh),
