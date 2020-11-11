@@ -71,6 +71,7 @@ impl Tester {
         bytecode: Vec<u8>,
         evm: Recipient<EthRequest>,
     ) -> EthResponse {
+        // craft tx
         let tx = TransactionRequest {
             from: sender,
             to: None,
@@ -82,6 +83,7 @@ impl Tester {
             condition: None,
         };
 
+        // Tell evm to execute the tx, returning receipt and trace
         let result = evm
             .send(EthRequest::eth_sendTransaction(
                 tx,
@@ -89,7 +91,10 @@ impl Tester {
             ))
             .await;
 
-        let eth_resp = result.unwrap_or(EthResponse::eth_unimplemented);
+        let eth_resp = result.unwrap_or_else(|e| {
+            println!("Failed to unwrap deploy result, result: {:?}", e);
+            EthResponse::eth_unimplemented
+        });
 
         eth_resp
     }
@@ -117,7 +122,10 @@ impl Tester {
             ))
             .await;
 
-        let eth_resp = result.unwrap_or(EthResponse::eth_unimplemented);
+        let eth_resp = result.unwrap_or_else(|e| {
+            println!("Failed to unwrap temp deploy result, result: {:?}", e);
+            EthResponse::eth_unimplemented
+        });
 
         eth_resp
     }
@@ -141,7 +149,10 @@ impl Tester {
             ))
             .await;
 
-        let eth_resp = eth_resp.unwrap_or(EthResponse::eth_unimplemented);
+        let eth_resp = eth_resp.unwrap_or_else(|e| {
+            println!("Failed to unwrap setup result, result: {:?}", e);
+            EthResponse::eth_unimplemented
+        });
 
         eth_resp
     }
@@ -173,14 +184,20 @@ impl Tester {
             ))
             .await;
 
-        let eth_resp = eth_resp.unwrap_or(EthResponse::eth_unimplemented);
+        let eth_resp = eth_resp.unwrap_or_else(|e| {
+            println!("Failed to unwrap test result, result: {:?}", e);
+            EthResponse::eth_unimplemented
+        });
 
         eth_resp
     }
 
     pub async fn get_code(address: H160, evm: Recipient<EthRequest>) -> EthResponse {
         let result = evm.send(EthRequest::eth_getCode(address, None)).await;
-        let res = result.unwrap_or(EthResponse::eth_unimplemented);
+        let res = result.unwrap_or_else(|e| {
+            println!("Failed to unwrap get_code result, result: {:?}", e);
+            EthResponse::eth_unimplemented
+        });
         res
     }
 
@@ -819,50 +836,6 @@ impl Handler<TestRequest> for Tester {
                 let g = f.then(test);
 
                 Box::pin(g)
-                // let mut futures = Vec::new();
-                // if !self.is_deployed(&src) {
-                // let r =
-                // ctx.wait(r);
-                // let latest = self.resolved.pop().unwrap();
-                // responses.push(latest.clone());
-                // self.add_contracts(latest, ctx);
-                // }
-                //
-                // if !self.is_setup(&src) {
-                //     let r = Self::setup(
-                //         sender,
-                //         contract,
-                //         self.evm.clone()
-                //     )
-                //     .into_actor(self)
-                //     .map(move |res, act, ctx| {
-                //         act.resolved.push(res);
-                //         println!("setup: {:?}", act.resolved);
-                //     });
-                //     ctx.wait(r);
-                // let latest = self.resolved.pop().unwrap();
-                // responses.push(latest.clone());
-                // self.add_contracts(latest, ctx);
-                // }
-
-                // let input = self
-                //     .compiled
-                //     .contracts.get(&src).unwrap()
-                //     .abi
-                //     .function(&test)
-                //     .unwrap()
-                //     .encode_input(&vec![])
-                //     .unwrap();
-                // let r = Self::test(sender, input, contract, self.evm.clone())
-                //         .into_actor(self)
-                //         .map(move |res, act, ctx| {
-                //             act.resolved.push(res);
-                //             println!("test: {:?}", act.resolved);
-                //         });
-                // ctx.wait(r);
-                // let latest = self.resolved.pop().unwrap();
-                // responses.push(latest.clone());
-                // TestResponse::Test(self.resolved.clone())
             }
             TestRequest::Solc(solc) => {
                 // let s = solc.clone();

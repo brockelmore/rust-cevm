@@ -2,6 +2,7 @@
   import * as d3 from 'd3';
   import { flamegraph, defaultFlamegraphTooltip } from 'd3-flame-graph';
   export let data;
+
   let flame;
   let chart;
   let details;

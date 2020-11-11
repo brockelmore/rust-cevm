@@ -23,11 +23,14 @@ export function process_subtrace(x, num, depth, parent_num) {
     me['fill'] = x['created'] ? create : default_fill
     me['created'] = x['created']
 
-    if (x['inputs']["Tokens"] && x['inputs']["Tokens"].length > 0) {
-      me['inputs'] = process_inputs(x['inputs']['Tokens'])
-    } else if (x['inputs']["String"] && x['inputs']["String"].length > 0) {
-      me['inputs'] = [x['inputs']['String']]
+    if (!x["created"]) {
+      if (x['inputs']["Tokens"] && x['inputs']["Tokens"].length > 0) {
+        me['inputs'] = process_inputs(x['inputs']['Tokens'])
+      } else if (x['inputs']["String"] && x['inputs']["String"].length > 0) {
+        me['inputs'] = [x['inputs']['String']]
+      }
     }
+
 
     if (x['inner'].length > 0) {
       me['children'] = []
@@ -36,46 +39,47 @@ export function process_subtrace(x, num, depth, parent_num) {
       me['children'].push(process_subtrace(x["inner"][i], i, depth + 1, me['id']))
     }
 
-
-    if (!x['success'] && x['output']['Tokens'] && x['output']['Tokens'].length > 0) {
-      if (!me['children']) {
-        me['children'] = []
+    if (!x["created"]) {
+      if (!x['success'] && x['output']['Tokens'] && x['output']['Tokens'].length > 0) {
+        if (!me['children']) {
+          me['children'] = []
+        }
+        let error = {
+          'id': me['id'] + '-error',
+          'name': 'Revert::Reason: "' +  x['output']['Tokens'][0]['String']+'"',
+          'value': x['value'],
+          'stroke': fail,
+          'fill': default_fill
+        }
+        me['children'].push(error);
+      } else if (x['success'] && x['output']['Tokens'] && x['output']['Tokens'].length > 0) {
+        if (!me['children']) {
+          me['children'] = []
+        }
+        let output = {
+          'id': me['id'] + '-output',
+          'name': 'Output: ' +  "( " + process_inputs(x['output']['Tokens']).join(', ') + " )",
+          'value': 0,
+          'stroke': success,
+          'fill': default_fill
+        }
+        me['children'].push(output);
+      } else if (x['success'] && x['output']['String'] && x['output']['String'].length > 0) {
+        if (!me['children']) {
+          me['children'] = []
+        }
+        let output = {
+          'id': me['id'] + '-output',
+          'name': 'Output: ' +  "( " + x['output']['String'].length > 100 ?  x['output']['String'].slice(0, 100) + ".." : x['output']['String'] + " )",
+          'value': 0,
+          'stroke': success,
+          'fill': default_fill
+        }
+        me['children'].push(output);
       }
-      let error = {
-        'id': me['id'] + '-error',
-        'name': 'Revert::Reason: "' +  x['output']['Tokens'][0]['String']+'"',
-        'value': x['value'],
-        'stroke': fail,
-        'fill': default_fill
-      }
-      me['children'].push(error);
-    } else if (x['success'] && x['output']['Tokens'] && x['output']['Tokens'].length > 0) {
-      if (!me['children']) {
-        me['children'] = []
-      }
-      let output = {
-        'id': me['id'] + '-output',
-        'name': 'Output: ' +  "( " + process_inputs(x['output']['Tokens']).join(', ') + " )",
-        'value': 0,
-        'stroke': success,
-        'fill': default_fill
-      }
-      me['children'].push(output);
-    } else if (x['success'] && x['output']['String'] && x['output']['String'].length > 0) {
-      if (!me['children']) {
-        me['children'] = []
-      }
-      let output = {
-        'id': me['id'] + '-output',
-        'name': 'Output: ' +  "( " + x['output']['String'].length > 100 ?  x['output']['String'].slice(0, 100) + ".." : x['output']['String'] + " )",
-        'value': 0,
-        'stroke': success,
-        'fill': default_fill
-      }
-      me['children'].push(output);
     }
 
-    console.log(x["logs"])
+    // console.log(x["logs"])
     // if (x["logs"] && x["logs"].length > 0) {
     //   if (!me['children']) {
     //     me['children'] = []
@@ -146,7 +150,7 @@ function process_inputs(inputs) {
 }
 
 export function process_trace(trace) {
-  console.log(trace)
+  // console.log(trace)
   let fin = {}
   fin["id"] = "0";
   fin['name'] = trace[0]["name"] + "::" + trace[0]['function'];
