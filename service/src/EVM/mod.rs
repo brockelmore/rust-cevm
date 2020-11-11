@@ -32,7 +32,7 @@ impl EVMService {
             origin: H160::random(),
             chain_id: U256::from(1337),
             block_hashes: Vec::new(),
-            block_number: U256::from(block.number.unwrap().as_u64()),
+            block_number: U256::from(block.number.expect("Provider didn't give a block number. Is it working correctly?").as_u64()),
             block_coinbase: H160::random(),
             block_timestamp: block.timestamp,
             block_difficulty: U256::zero(),
@@ -97,19 +97,19 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
 
         let act = |tx: &TransactionRequest| {
             if tx.to != None {
-                Action::Call(tx.to.unwrap())
+                Action::Call(tx.to.expect("tx.to not none, but failed to unwrap"))
             } else {
                 Action::Create
             }
         };
 
         let mut as_unverified = |tx: &TransactionRequest, action: &Action| {
-            let Bytes(raw) = tx.data.clone().unwrap();
+            let Bytes(raw) = tx.data.clone().expect("handle EthRequest: tx input data didn't exist in as_unverified");
             UnverifiedTransaction {
                 unsigned: SelfTransaction {
                     nonce: tx.nonce.unwrap_or(exec.nonce(tx.from)),
-                    gas_price: tx.gas_price.unwrap(),
-                    gas: tx.gas.unwrap(),
+                    gas_price: tx.gas_price.unwrap_or_default(),
+                    gas: tx.gas.unwrap_or(self.backend.vicinity.block_gas_limit),
                     action: action.clone(),
                     value: tx.value.unwrap_or(U256::zero()),
                     data: raw,
@@ -148,10 +148,10 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                         let (_tx_rec, tx_data, tx_trace) = exec.transact_call(
                             hash,
                             tx.from,
-                            tx.to.unwrap(),
+                            tx.to.expect("SendTransaction: Action type call, but tx.to was None"),
                             tx.value.unwrap_or(U256::zero()),
                             uv_tx.unsigned.data,
-                            tx.gas.unwrap().as_usize(),
+                            tx.gas.unwrap_or(self.backend.vicinity.block_gas_limit).as_usize(),
                         );
                         data = tx_data;
                         trace = tx_trace;
@@ -162,7 +162,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                             tx.from,
                             tx.value.unwrap_or(U256::zero()), // value: 0 eth
                             uv_tx.unsigned.data,              // data
-                            tx.gas.unwrap().as_usize(),       // gas_limit
+                            tx.gas.unwrap_or(self.backend.vicinity.block_gas_limit).as_usize(),       // gas_limit
                         );
                         data = tx_data.unwrap_or(H160::zero()).as_bytes().to_vec();
                         trace = tx_trace;
@@ -231,9 +231,9 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                 re
             }
             EthRequest::eth_sendRawTransaction(bytes) => {
-                let tx: UnverifiedTransaction = rlp::decode(&bytes).unwrap();
+                let tx: UnverifiedTransaction = rlp::decode(&bytes).expect("rlp::decode failed for UnverifiedTransaction. Are you sure the bytes are correctly formed?");
                 let hash = tx.hash;
-                let sender = public_to_address(&tx.recover_public().unwrap());
+                let sender = public_to_address(&tx.recover_public().expect("Unable to recover public key from tx. Is the signature/tx valid?"));
                 match tx.action {
                     crate::shared::Action::Create => {
                         exec.transact_create(
@@ -268,7 +268,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                         let (_tx_rec, tx_data, _tr) = exec.transact_call(
                             hash,
                             tx.from,
-                            tx.to.unwrap(),
+                            tx.to.expect("Call: Action type call, but tx.to was None"),
                             tx.value.unwrap_or(U256::zero()),
                             uv_tx.unsigned.data,
                             tx.gas
@@ -287,7 +287,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                                 .unwrap_or(self.backend.vicinity.block_gas_limit)
                                 .as_usize(), // gas_limit
                         );
-                        data = tx_data.unwrap().as_bytes().to_vec();
+                        data = tx_data.expect("Call: Create tx did not return a created address").as_bytes().to_vec();
                     }
                 }
                 // no commit on call
@@ -305,9 +305,9 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                     tx.from,
                     tx.value.unwrap_or(U256::zero()), // value: 0 eth
                     uv_tx.unsigned.data,             // data
-                    tx.gas.unwrap().as_usize(),       // gas_limit
+                    tx.gas.unwrap_or(self.backend.vicinity.block_gas_limit).as_usize(),       // gas_limit
                 );
-                let addr = tx_data.unwrap();
+                let addr = tx_data.expect("Temporary Deployment: Did not return a created address");
                 data = exec.code(addr);
                 // no commit, tmp deployment
                 commit = false;
@@ -346,7 +346,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                 EthResponse::eth_getTransactionReceipt(self.backend.tx_receipt(hash))
             }
             EthRequest::eth_sim(_hash, in_place, options) => {
-                let tx = sim_tx.unwrap();
+                let tx = sim_tx.expect("Sim: simulated tx not found");
 
                 if in_place {
                     // would need to get txs in block up to tx.index, sim all those, then execute
@@ -361,7 +361,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                     let (_tx_rec, tx_data, tx_trace) = exec.transact_call(
                         tx.hash,
                         tx.from,
-                        tx.to.unwrap(),
+                        tx.to.expect("Sim: tx.to defined, but can't unwrap"),
                         tx.value,
                         raw,
                         tx.gas.as_usize(),
