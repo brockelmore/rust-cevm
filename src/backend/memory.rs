@@ -177,8 +177,7 @@ impl<'vicinity> Backend for MemoryBackend<'vicinity> {
     fn storage(&self, address: H160, index: H256) -> H256 {
         self.state
             .get(&address)
-            .map(|v| v.storage.get(&index).cloned().unwrap_or_default())
-            .unwrap_or_default()
+            .map(|v| v.storage.get(&index).cloned().unwrap_or_default()).unwrap_or_default()
     }
 
     fn tx_receipt(&self, hash: H256) -> TxReceipt {
@@ -233,8 +232,7 @@ impl<'vicinity> ApplyBackend for MemoryBackend<'vicinity> {
                 } => {
                     let is_empty = {
                         if tip {
-                            let account =
-                                self.state.entry(address).or_insert_with(Default::default);
+                            let account = self.state.entry(address).or_insert_with(Default::default);
                             account.balance = basic.balance;
                             account.nonce = basic.nonce;
                             if let Some(code) = code {

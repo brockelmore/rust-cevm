@@ -96,7 +96,6 @@ pub struct StackExecutor<'backend, 'config, B> {
     pub call_trace: Vec<Box<CallTrace>>,
 }
 
-#[allow(clippy::type_complexity)]
 fn precompiles(
     _address: H160,
     _input: &[u8],
@@ -508,9 +507,11 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 
     /// Get mutable account reference.
     pub fn account_mut(&mut self, address: H160) -> &mut StackAccount {
-        self.state.entry(address).or_insert({
+        if self.state.contains_key(&address) {
+            self.state.get_mut(&address).unwrap()
+        } else {
             let b = self.backend.basic(address);
-            StackAccount {
+            let acct = StackAccount {
                 basic: b.clone(),
                 code: None,
                 storage: BTreeMap::new(),
@@ -519,29 +520,31 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                 original_basic: b,
                 reset_storage: false,
                 reset_storage_backend: false,
-            }
-        })
+            };
+            self.state.insert(address, acct);
+            self.state.get_mut(&address).unwrap()
+        }
     }
 
     /// Get account nonce.
     pub fn nonce(&mut self, address: H160) -> U256 {
-        self.state
-            .entry(address)
-            .or_insert({
-                let b = self.backend.basic(address);
-                StackAccount {
-                    basic: b.clone(),
-                    code: None,
-                    storage: BTreeMap::new(),
-                    original_storage: BTreeMap::new(),
-                    original_code: None,
-                    original_basic: b,
-                    reset_storage: false,
-                    reset_storage_backend: false,
-                }
-            })
-            .basic
-            .nonce
+        if self.state.contains_key(&address) {
+            self.state.get_mut(&address).unwrap().basic.nonce
+        } else {
+            let b = self.backend.basic(address);
+            let acct = StackAccount {
+                basic: b.clone(),
+                code: None,
+                storage: BTreeMap::new(),
+                original_storage: BTreeMap::new(),
+                original_code: None,
+                original_basic: b,
+                reset_storage: false,
+                reset_storage_backend: false,
+            };
+            self.state.insert(address, acct);
+            self.state.get_mut(&address).unwrap().basic.nonce
+        }
     }
 
     /// Withdraw balance from address.
@@ -595,7 +598,6 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn create_inner(
         &mut self,
         caller: H160,
@@ -764,22 +766,25 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                         calltrace.inner.append(&mut substate.call_trace);
                         let e = self.merge_succeed(substate, calltrace);
 
-                        let mut acct = self.state.entry(address).or_insert({
+                        if self.state.contains_key(&address) {
+                            let acct = self.state.get_mut(&address).unwrap();
+                            acct.code = Some(out);
+                            acct.original_code = acct.code.clone();
+                            *acct = acct.clone();
+                        } else {
                             let b = self.backend.basic(address);
-                            StackAccount {
+                            let acct = StackAccount {
                                 basic: b.clone(),
-                                code: None, //Some(out.clone()),
+                                code: Some(out.clone()),
                                 storage: BTreeMap::new(),
                                 original_storage: BTreeMap::new(),
-                                original_code: None, //Some(out),
+                                original_code: Some(out),
                                 original_basic: b,
                                 reset_storage: false,
                                 reset_storage_backend: false,
-                            }
-                        });
-                        acct.code = Some(out);
-                        acct.original_code = acct.code.clone();
-
+                            };
+                            self.state.insert(address, acct);
+                        }
                         try_or_fail!(e);
                         Capture::Exit((ExitReason::Succeed(s), Some(address), Vec::new()))
                     }
@@ -830,7 +835,6 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn call_inner(
         &mut self,
         code_address: H160,
@@ -864,10 +868,15 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                     let who = H160::from_slice(&input[16..36]);
                     let slot = H256::from_slice(&input[36..68]);
                     let val = H256::from_slice(&input[68..]);
-                    let mut acct = self.state.entry(who).or_insert({
+                    if self.state.contains_key(&who) {
+                        let acct = self.state.get_mut(&who).unwrap();
+                        acct.storage.insert(slot, val);
+                        acct.reset_storage_backend = false;
+                        *acct = acct.clone();
+                    } else {
                         let b = self.backend.basic(who);
                         let code = self.backend.code(who);
-                        StackAccount {
+                        let mut acct = StackAccount {
                             basic: b.clone(),
                             code: Some(code.clone()),
                             storage: BTreeMap::new(),
@@ -876,10 +885,10 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                             original_basic: b,
                             reset_storage: false,
                             reset_storage_backend: false,
-                        }
-                    });
-                    acct.storage.insert(slot, val);
-                    acct.reset_storage_backend = false;
+                        };
+                        acct.storage.insert(slot, val);
+                        self.state.insert(who, acct);
+                    }
                 }
                 // load
                 _ if sig == *"667f9d70" => {
@@ -1064,23 +1073,23 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
     type CallFeedback = Infallible;
 
     fn balance(&mut self, address: H160) -> U256 {
-        self.state
-            .entry(address)
-            .or_insert({
-                let b = self.backend.basic(address);
-                StackAccount {
-                    basic: b.clone(),
-                    code: None,
-                    storage: BTreeMap::new(),
-                    original_storage: BTreeMap::new(),
-                    original_code: None,
-                    original_basic: b,
-                    reset_storage: false,
-                    reset_storage_backend: false,
-                }
-            })
-            .basic
-            .balance
+        if self.state.contains_key(&address) {
+            self.state.get_mut(&address).unwrap().basic.balance
+        } else {
+            let b = self.backend.basic(address);
+            let acct = StackAccount {
+                basic: b.clone(),
+                code: None,
+                storage: BTreeMap::new(),
+                original_storage: BTreeMap::new(),
+                original_code: None,
+                original_basic: b,
+                reset_storage: false,
+                reset_storage_backend: false,
+            };
+            self.state.insert(address, acct);
+            self.state.get_mut(&address).unwrap().basic.balance
+        }
     }
 
     #[allow(clippy::map_entry)]
@@ -1261,11 +1270,7 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
         } else if let Some(account) = self.state.get(&address) {
             account.basic.nonce != U256::zero()
                 || account.basic.balance != U256::zero()
-                || account
-                    .code
-                    .as_ref()
-                    .map(|c| !c.is_empty())
-                    .unwrap_or(false)
+                || account.code.as_ref().map(|c| !c.is_empty()).unwrap_or(false)
                 || !self.backend.code(address).is_empty()
         } else {
             self.backend.basic(address).nonce != U256::zero()
