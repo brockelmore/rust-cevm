@@ -119,7 +119,7 @@ pub enum EthResponse {
         data: Option<Vec<u8>>,
         logs: Option<Vec<evm::backend::Log>>,
         recs: Option<Vec<TxReceipt>>,
-        trace: Option<Vec<Box<CallTrace>>>,
+        trace: Option<Vec<CallTrace>>,
     },
     eth_getLogs(Vec<web3::types::Log>),
     eth_unimplemented,
@@ -243,7 +243,7 @@ impl EthResponse {
             _ => None,
         }
     }
-    pub fn tx_trace(self) -> Option<Vec<Box<CallTrace>>> {
+    pub fn tx_trace(self) -> Option<Vec<CallTrace>> {
         match self {
             EthResponse::eth_sendTransaction {
                 hash,
@@ -274,7 +274,7 @@ impl EthResponse {
         Option<Vec<u8>>,
         Option<Vec<evm::backend::Log>>,
         Option<Vec<TxReceipt>>,
-        Option<Vec<Box<CallTrace>>>,
+        Option<Vec<CallTrace>>,
     )> {
         match self {
             EthResponse::eth_sendTransaction {
