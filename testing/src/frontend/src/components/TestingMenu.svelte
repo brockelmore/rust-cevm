@@ -18,8 +18,8 @@
 		<span class='selector-label'>Source Directory:</span>
 		<input bind:value={meta_testing.src_dir}>
 		<div>
-			<button on:click={() => compile(meta_testing).then(() => {dispatch("update", {})})}>Compile</button>
-			<button on:click={() => load_compiled(meta_testing).then(() => {dispatch("update", {})})}>Load Compiled</button>
+			<button on:click={() => compile(meta_testing).then(() => { update(); }) }>Compile</button>
+			<button on:click={() => load_compiled(meta_testing).then(() => { update(); }) }>Load Compiled</button>
 		</div>
 	</div>
 

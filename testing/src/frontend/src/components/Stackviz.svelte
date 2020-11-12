@@ -46,6 +46,9 @@
 	    } else {
 	      isLeaf = true;
 	    }
+      if (cfg.name && cfg.name.length > 100) {
+        cfg.name = cfg.name.slice(0, 100) + ".."
+      }
 	    const shape = group.addShape('text', {
 	      attrs: {
 	        x: 20,
@@ -70,10 +73,13 @@
           stroke: '#FFF',
         },
       });
-      if (cfg.inputs.length > 0) {
+      if (cfg.inputs && cfg.inputs.length > 0) {
         let input = JSON.stringify(cfg.inputs);
         if (cfg.created) {
-            input = input.length > 100 ? input.slice(0, 100) + "..]" : input
+            input = input.length > 30 ? input.slice(0, 30) + "..]" : input
+        }
+        if (input.length > 60) {
+            input = input.length > 60 ? input.slice(0, 60) + "..]" : input
         }
         const outputShape = group.addShape('text', {
           attrs: {

@@ -23,7 +23,7 @@ export function process_subtrace(x, num, depth, parent_num) {
     me['fill'] = x['created'] ? create : default_fill
     me['created'] = x['created']
 
-    if (!x["created"]) {
+    if (!me["created"]) {
       if (x['inputs']["Tokens"] && x['inputs']["Tokens"].length > 0) {
         me['inputs'] = process_inputs(x['inputs']['Tokens'])
       } else if (x['inputs']["String"] && x['inputs']["String"].length > 0) {
@@ -157,9 +157,12 @@ export function process_trace(trace) {
   fin['success'] = trace[0]['success'];
   fin['value'] = trace[0]['cost'];
   fin['created'] = trace[0]['created'];
-  if (trace[0]['inputs'].length > 0 ) {
-    fin['inputs'] = process_inputs(trace[0]['inputs'])
+  if (!fin["created"]) {
+    if (trace[0]['inputs'].length > 0 ) {
+      fin['inputs'] = process_inputs(trace[0]['inputs'])
+    }
   }
+
   fin['children'] = []
   for (let i = 0; i < trace[0]['inner'].length; i++) {
     fin['children'].push(process_subtrace(trace[0]["inner"][i], i, 1, fin['id']))
