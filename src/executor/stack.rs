@@ -212,6 +212,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         calltrace.logs = substate.logs.clone();
         self.call_trace.push(calltrace);
         self.logs.append(&mut substate.logs);
+        self.state = substate.state;
         self.tmp_bn = substate.tmp_bn;
         self.tmp_timestamp = substate.tmp_timestamp;
         self.gasometer.record_stipend(substate.gasometer.gas())?;
@@ -226,6 +227,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
     ) -> Result<(), ExitError> {
         calltrace.logs = substate.logs.clone();
         self.call_trace.push(calltrace);
+        self.state = substate.state;
         self.tmp_bn = substate.tmp_bn;
         self.tmp_timestamp = substate.tmp_timestamp;
         self.logs.append(&mut substate.logs);
@@ -367,8 +369,6 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
             context,
         );
 
-        // self.call_trace = self.call_trace.inner.clone();
-
         let status;
         match exit {
             Capture::Exit((s, ref _v)) => match s {
@@ -396,6 +396,8 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
 
         self.tmp_bn = None;
         self.tmp_timestamp = None;
+
+
 
         match exit {
             Capture::Exit((s, v)) => (s, v, self.call_trace.clone()),

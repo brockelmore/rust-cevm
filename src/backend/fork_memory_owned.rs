@@ -206,8 +206,6 @@ impl Backend for ForkMemoryBackendOwned {
             to_block = self.vicinity.block_number;
         };
 
-        println!("self logs: {:#?}", self.logs);
-
         for (_bn, normal_logs) in self.logs.range((Included(from_block), Included(to_block))) {
             let matched_logs: Vec<&Log> = normal_logs
                 .iter()
@@ -259,10 +257,6 @@ impl ApplyBackend for ForkMemoryBackendOwned {
         I: IntoIterator<Item = (H256, H256)>,
         L: IntoIterator<Item = Log>,
     {
-        // let mut tip = false;
-        // if block == self.local_block_num {
-        //     tip = true;
-        // }
         let tip = true;
         for apply in values {
             match apply {
@@ -283,6 +277,8 @@ impl ApplyBackend for ForkMemoryBackendOwned {
                                 self.state.insert(address, acct);
                                 account = self.state.get_mut(&address).unwrap();
                             }
+
+
 
                             if created_contracts.contains(&address) {
                                 account.created = true;
@@ -305,14 +301,20 @@ impl ApplyBackend for ForkMemoryBackendOwned {
                                 .map(|(k, _)| *k)
                                 .collect::<Vec<H256>>();
 
-                            for zero in zeros {
-                                account.storage.remove(&zero);
-                            }
+                            if account.created {
+                                for zero in zeros {
+                                    account.storage.remove(&zero);
+                                }
 
-                            for (index, value) in storage {
-                                if value == H256::default() {
-                                    account.storage.remove(&index);
-                                } else {
+                                for (index, value) in storage {
+                                    if value == H256::default() {
+                                        account.storage.remove(&index);
+                                    } else {
+                                        account.storage.insert(index, value);
+                                    }
+                                }
+                            } else {
+                                for (index, value) in storage {
                                     account.storage.insert(index, value);
                                 }
                             }
@@ -375,6 +377,7 @@ impl ApplyBackend for ForkMemoryBackendOwned {
         }
 
         let ls = self.logs.entry(block).or_insert(Vec::new());
+
         let mut f = ls.clone();
         for log in logs {
             f.push(log);

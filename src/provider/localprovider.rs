@@ -11,7 +11,7 @@ use thiserror::Error;
 use url::Url;
 
 /// Delay between calls
-pub static DELAY: u64 = 5;
+pub static DELAY: u64 = 2;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Error)]
 /// A JSON-RPC 2.0 error
@@ -216,7 +216,7 @@ impl Provider {
     /// Get storage for a particular index at an address
     pub fn get_block_by_hash_txs(&self, bh: H256) -> web3::types::Block<web3::types::Transaction> {
         self.check_delay();
-        //println!("eth_getBlockByNumber");
+        //println!("eth_getBlockByHashTxs");
         let index = serialize(&bh);
         let t = serialize(&true);
         let request = build_request(0, "eth_getBlockByHash", vec![index, t]);
@@ -236,7 +236,7 @@ impl Provider {
     /// Get storage for a particular index at an address
     pub fn get_block_by_hash(&self, bh: H256) -> web3::types::Block<web3::types::H256> {
         self.check_delay();
-        //println!("eth_getBlockByNumber");
+        //println!("eth_getBlockByHash");
         let index = serialize(&bh);
         let t = serialize(&false);
         let request = build_request(0, "eth_getBlockByHash", vec![index, t]);
@@ -312,8 +312,8 @@ impl Provider {
     /// Gets the balance of an address
     pub fn get_balance(&self, address: H160, block: Option<U256>) -> U256 {
         self.check_delay();
-        //println!("eth_getBalance");
-        println!("balance block: {:?}", block);
+        //println!("eth_getBalance, {:?}", address);
+        // //println!("balance block: {:?}", block);
         let address = serialize(&address);
         let b;
         match block {
@@ -332,14 +332,22 @@ impl Provider {
             .json(&request)
             .send()
             .expect("provider error, get_balance");
-        let res = res.json::<Response<U256>>().unwrap();
+        let res = res.json::<Response<U256>>().unwrap_or({
+            let res = self
+                .client
+                .post(self.url.clone())
+                .json(&request)
+                .send()
+                .expect("provider error, get_balance");
+            res.json::<Response<U256>>().expect("I retried, but couldn't unwrap response")
+        });
         res.data.into_result().unwrap()
     }
 
     /// Gets the tx count for an address
     pub fn get_transaction_count(&self, address: H160, block: Option<U256>) -> U256 {
         self.check_delay();
-        //println!("eth_getTransactionCount");
+        //println!("eth_getTransactionCount: {:?}", address);
         let address = serialize(&address);
         let b;
         match block {
@@ -365,7 +373,7 @@ impl Provider {
     /// Gets Tx from hash
     pub fn get_transaction(&self, hash: H256) -> web3::types::Transaction {
         self.check_delay();
-        //println!("eth_getTransactionReceipt");
+        //println!("eth_getTransactionByHash: {:?}", hash);
         let h = serialize(&hash);
 
         let request = build_request(0, "eth_getTransactionByHash", vec![h]);
@@ -388,7 +396,7 @@ impl Provider {
         topics: Vec<H256>,
     ) -> Vec<web3::types::Log> {
         self.check_delay();
-        //println!("eth_getTransactionReceipt");
+        //println!("get_logs: {:?}", addrs);
         let filter = serialize(
             &web3::types::FilterBuilder::default()
                 .from_block(web3::types::BlockNumber::Number(web3::types::U64::from(
@@ -415,7 +423,7 @@ impl Provider {
     /// Gets the tx count for an address
     pub fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
         self.check_delay();
-        //println!("eth_getTransactionReceipt");
+        //println!("eth_getTransactionReceipt: {:?}", hash);
         let h = serialize(&hash);
 
         let request = build_request(0, "eth_getTransactionReceipt", vec![h]);

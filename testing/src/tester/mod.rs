@@ -516,7 +516,7 @@ impl TestInfo {
                 let mut t = None;
                 if let Some(tr) = trace {
                     t = Some(self.parse_call_trace(tr));
-                    println!("trace {:#?}", t);
+                    // println!("trace {:#?}", t);
                 }
                 TestEVMResponse {
                     hash,
@@ -593,6 +593,9 @@ impl Handler<TestRequest> for Tester {
                 Box::pin(me)
             }
             TestRequest::Test(src, test, opts) => {
+                if self.compiled.contracts.len() == 0 {
+                    return Box::pin(futures::future::ok(TestResponse::Failure("No contracts loaded".to_string())).into_actor(self));
+                }
                 let mut isEOA = false;
                 if let Some(ops) = opts {
                     if let Some(sender) = ops.sender {

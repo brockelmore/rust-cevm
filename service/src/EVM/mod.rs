@@ -145,7 +145,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                 let trace;
                 match action {
                     Action::Call(_) => {
-                        let (_tx_rec, tx_data, tx_trace) = exec.transact_call(
+                        let (succ, tx_data, tx_trace) = exec.transact_call(
                             hash,
                             tx.from,
                             tx.to.expect("SendTransaction: Action type call, but tx.to was None"),
@@ -153,17 +153,29 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                             uv_tx.unsigned.data,
                             tx.gas.unwrap_or(self.backend.vicinity.block_gas_limit).as_usize(),
                         );
+                        match succ {
+                            evm::ExitReason::Succeed(_) => {}
+                            _ => {
+                                commit = false;
+                            }
+                        }
                         data = tx_data;
                         trace = tx_trace;
                     }
                     Action::Create => {
-                        let (_tx_rec, tx_data, tx_trace) = exec.transact_create(
+                        let (succ, tx_data, tx_trace) = exec.transact_create(
                             hash,
                             tx.from,
                             tx.value.unwrap_or(U256::zero()), // value: 0 eth
                             uv_tx.unsigned.data,              // data
                             tx.gas.unwrap_or(self.backend.vicinity.block_gas_limit).as_usize(),       // gas_limit
                         );
+                        match succ {
+                            evm::ExitReason::Succeed(_) => {}
+                            _ => {
+                                commit = false;
+                            }
+                        }
                         data = tx_data.unwrap_or(H160::zero()).as_bytes().to_vec();
                         trace = tx_trace;
                     }
@@ -236,16 +248,22 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                 let sender = public_to_address(&tx.recover_public().expect("Unable to recover public key from tx. Is the signature/tx valid?"));
                 match tx.action {
                     crate::shared::Action::Create => {
-                        exec.transact_create(
+                        let (succ, _, _) = exec.transact_create(
                             hash,
                             sender,
                             tx.value,          // value: 0 eth
                             tx.data.clone(),   // data
                             tx.gas.as_usize(), // gas_limit
                         );
+                        match succ {
+                            evm::ExitReason::Succeed(_) => {}
+                            _ => {
+                                commit = false;
+                            }
+                        }
                     }
                     crate::shared::Action::Call(addr) => {
-                        let (_tx_rec, _tx_data, _tr) = exec.transact_call(
+                        let (succ, _tx_data, _tr) = exec.transact_call(
                             hash,
                             sender,
                             addr,
@@ -253,6 +271,12 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                             tx.data.clone(),
                             tx.gas.as_usize(),
                         );
+                        match succ {
+                            evm::ExitReason::Succeed(_) => {}
+                            _ => {
+                                commit = false;
+                            }
+                        }
                     }
                 }
                 EthResponse::eth_sendRawTransaction(hash)
@@ -265,7 +289,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                 let data;
                 match action {
                     Action::Call(_) => {
-                        let (_tx_rec, tx_data, _tr) = exec.transact_call(
+                        let (_succ, tx_data, _tr) = exec.transact_call(
                             hash,
                             tx.from,
                             tx.to.expect("Call: Action type call, but tx.to was None"),
@@ -278,7 +302,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                         data = tx_data;
                     }
                     Action::Create => {
-                        let (_tx_rec, tx_data, _tr) = exec.transact_create(
+                        let (_succ, tx_data, _tr) = exec.transact_create(
                             hash,
                             tx.from,
                             tx.value.unwrap_or(U256::zero()), // value: 0 eth
@@ -300,7 +324,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
                 let uv_tx = uv_tx.compute_hash();
                 let hash = uv_tx.hash;
                 let data;
-                let (_tx_rec, tx_data, _tr) = exec.transact_create(
+                let (_succ, tx_data, _tr) = exec.transact_create(
                     hash,
                     tx.from,
                     tx.value.unwrap_or(U256::zero()), // value: 0 eth

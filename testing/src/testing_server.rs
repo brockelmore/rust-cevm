@@ -108,14 +108,14 @@ pub async fn bytes_handler(
     status: Option<StatusCode>,
 ) -> Result<Response<Body>> {
     // Compress
-    let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
-    e.write_all(body).unwrap();
-    let compressed = e.finish().unwrap();
+    // let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+    // e.write_all(body).unwrap();
+    // let compressed = e.finish().unwrap();
     Ok(Response::builder()
         .status(status.unwrap_or_default())
         .header(header::CONTENT_TYPE, content_type)
-        .header(header::CONTENT_ENCODING, "deflate")
-        .body(Body::from(compressed))
+        // .header(header::CONTENT_ENCODING, "deflate")
+        .body(Body::from(body.clone().to_vec()))
         .unwrap())
 }
 
