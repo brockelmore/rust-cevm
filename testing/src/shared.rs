@@ -1,10 +1,10 @@
 use crate::compiler::solc_types::SolcOutput;
 use crate::tester::tester_types::*;
 use actix::prelude::*;
+use evm::backend::TxReceipt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use web3::types::{H160, H256};
-use evm::backend::TxReceipt;
 
 #[allow(non_snake_case)]
 #[derive(Message)]

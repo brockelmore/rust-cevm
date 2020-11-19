@@ -1,5 +1,5 @@
 <script>
-	import Stackviz from "./components/Stackviz.svelte";
+	import Tree from "./components/Tree.svelte";
 	import TestingMenu from "./components/TestingMenu.svelte";
 	import Flame from "./components/Flame.svelte";
 	import {
@@ -50,7 +50,7 @@
 	} else {
 		console.log("no src_dir");
 		meta_testing.src_dir = "/home/brock/yamV3/contracts"
-		compile(meta_testing).then(e => {
+		load_compiled(meta_testing).then(e => {
 			meta_testing = e;
 		});
 	}
@@ -58,9 +58,10 @@
 	let value = ""
 	let selectedHistory = null;
 
-	const options = [{
+	const options = [
+		{
 			kind: 'stack',
-			component: Stackviz
+			component: Tree
 		},
 		{
 			kind: 'flame',
@@ -104,6 +105,8 @@
 		padding: 1em;
 		max-width: 240px;
 		margin: 0 auto;
+		display: flex;
+		flex-direction: column;
 	}
 
 	h1 {

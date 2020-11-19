@@ -65,7 +65,7 @@
   export let hideEmptyState = false;
   export let filteredItems = [];
   export let inputAttributes = {};
-  
+
 
   let target;
   let activeSelectedValue;
@@ -85,9 +85,9 @@
 
   const getItems = debounce(async () => {
     isWaiting = true;
-    
+
     items = await loadOptions(filterText);
-  
+
     isWaiting = false;
     isFocused = true;
     listOpen = true;
@@ -170,16 +170,16 @@
 
           if(groupValue) {
             groups[groupValue].push(Object.assign(
-              createGroupHeaderItem(groupValue, item), 
-              { 
-                id: groupValue, 
-                isGroupHeader: true, 
+              createGroupHeaderItem(groupValue, item),
+              {
+                id: groupValue,
+                isGroupHeader: true,
                 isSelectable: isGroupHeaderSelectable
               }
             ));
           }
         }
-        
+
         groups[groupValue].push(Object.assign({ isGroupItem: !!groupValue }, item));
       });
 
@@ -334,7 +334,7 @@
     }
 
     dispatch('clear', itemToRemove);
-    
+
     getPosition();
   }
 
@@ -581,7 +581,7 @@
     {..._inputAttributes}
     bind:this={input}
     on:focus="{handleFocus}"
-    bind:value="{filterText}"    
+    bind:value="{filterText}"
     placeholder="{placeholderText}"
     disabled="{isDisabled}"
     style="{inputStyles}"
@@ -681,6 +681,11 @@
     overflow-x: hidden;
     white-space: nowrap;
     padding: var(--selectedItemPadding, 0 20px 0 0);
+    position: var(--selectedItemPosition, relative);
+    top: var(--selectedItemTop, 5px);
+    right: var(--selectedItemRight, 0px);
+    bottom: var(--selectedItemBottom, 0px);
+    left: var(--selectedItemLeft, 0px);
   }
 
   .selectedItem:focus {

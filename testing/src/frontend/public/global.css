@@ -14,7 +14,6 @@ body {
 }
 
 a {
-	color: rgb(0,100,200);
 	text-decoration: none;
 }
 
@@ -41,15 +40,23 @@ input, button, select, textarea {
 	border-radius: 2px;
 }
 
+input {
+	margin: 0px;
+}
+
+button {
+	color: #d9d9d9;
+	background-color: #000;
+	outline: none;
+	box-shadow: 2px 2px #143653;
+	cursor: pointer;
+	margin: 0px;
+}
+
 input:disabled {
 	color: #ccc;
 }
 
-button {
-	color: #333;
-	background-color: #f4f4f4;
-	outline: none;
-}
 
 button:disabled {
 	color: #999;
@@ -62,3 +69,73 @@ button:not(:disabled):active {
 button:focus {
 	border-color: #666;
 }
+
+/*
+
+.tree ul {
+	margin-left: 20px;
+}
+
+.tree li {
+	list-style-type: none;
+	margin:10px;
+	position: relative;
+}
+
+.tree li::before {
+	content: "";
+	position: absolute;
+	top:-15px;
+	left:-20px;
+	border-left: 1px solid #ccc;
+	border-bottom:1px solid #ccc;
+	border-radius:0 0 0 0px;
+	width:19px;
+	height:23px;
+}
+
+.tree li::after {
+	position:absolute;
+	content:"";
+	top:8px;
+	left:-20px;
+	border-left: 1px solid #ccc;
+	border-top:1px solid #ccc;
+	border-radius:0px 0 0 0;
+	width:20px;
+	height:100%;
+}
+
+.tree li:last-child::after  {
+	display:none;
+}
+
+.tree li:last-child:before{
+	border-radius: 0 0 0 5px;
+}
+
+ul.tree>li:first-child::before {
+	display:none;
+}
+
+ul.tree>li:first-child::after {
+	border-radius:5px 0 0 0;
+}
+
+.tree li a {
+	border: 1px #ccc solid;
+	border-radius: 5px;
+	padding:2px 5px;
+}
+
+.tree li a:hover, .tree li a:hover+ul li a,
+.tree li a:focus, .tree li a:focus+ul li a {
+	background: #ccc; color: #000; border: 1px solid #000;
+}
+
+.tree li a:hover+ul li::after, .tree li a:focus+ul li::after,
+.tree li a:hover+ul li::before, .tree li a:focus+ul li::before
+.tree li a:hover+ul::before, .tree li a:focus+ul::before
+.tree li a:hover+ul ul::before, .tree li a:focus+ul ul::before{
+	border-color:  #000; /*connector color on hover*/
+} */

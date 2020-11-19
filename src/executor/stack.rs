@@ -94,6 +94,8 @@ pub struct StackExecutor<'backend, 'config, B> {
     pub created_contracts: BTreeSet<H160>,
     /// Call trace
     pub call_trace: Vec<CallTrace>,
+    /// Owned Logs
+    pub owned_logs: Vec<Log>,
 }
 
 fn precompiles(
@@ -137,6 +139,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
             created_contracts: BTreeSet::new(),
             call_trace: Vec::new(),
             precompiles: BTreeMap::new(),
+            owned_logs: Vec::new(),
         }
     }
 
@@ -165,6 +168,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
             created_contracts: self.created_contracts.clone(),
             call_trace: Vec::new(),
             precompiles: self.precompiles.clone(),
+            owned_logs: Vec::new(),
         }
     }
 
@@ -187,7 +191,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         mut substate: StackExecutor<'_, '_, OB>,
         mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
-        calltrace.logs = substate.logs.clone();
+        calltrace.logs = substate.owned_logs.clone();
         self.call_trace.push(calltrace);
         self.logs.append(&mut substate.logs);
         self.deleted.append(&mut substate.deleted);
@@ -209,7 +213,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         mut substate: StackExecutor<'_, '_, OB>,
         mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
-        calltrace.logs = substate.logs.clone();
+        calltrace.logs = substate.owned_logs.clone();
         self.call_trace.push(calltrace);
         self.logs.append(&mut substate.logs);
         self.state = substate.state;
@@ -225,7 +229,7 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         mut substate: StackExecutor<'_, '_, OB>,
         mut calltrace: CallTrace,
     ) -> Result<(), ExitError> {
-        calltrace.logs = substate.logs.clone();
+        calltrace.logs = substate.owned_logs.clone();
         self.call_trace.push(calltrace);
         self.state = substate.state;
         self.tmp_bn = substate.tmp_bn;
@@ -1332,6 +1336,11 @@ impl<'backend, 'config, B: Backend> Handler for StackExecutor<'backend, 'config,
     }
 
     fn log(&mut self, address: H160, topics: Vec<H256>, data: Vec<u8>) -> Result<(), ExitError> {
+        self.owned_logs.push(Log {
+            address: address.clone(),
+            topics: topics.clone(),
+            data: data.clone(),
+        });
         self.logs.push(Log {
             address,
             topics,

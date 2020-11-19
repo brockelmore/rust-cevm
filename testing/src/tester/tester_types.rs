@@ -114,9 +114,29 @@ impl From<Log> for BetterLog {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HexLog {
+    /// Source address.
+    pub address: H160,
+    /// Topics.
+    pub topics: Vec<H256>,
+    /// Log data.
+    pub data: String,
+}
+
+impl From<evm::backend::Log> for HexLog {
+    fn from(log: evm::backend::Log) -> HexLog {
+        HexLog {
+            address: log.address,
+            topics: log.topics,
+            data: hex::encode(log.data),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ParsedOrNormalLog {
     Parsed(HashMap<String, BetterToken>),
-    NotParsed(evm::backend::Log),
+    NotParsed(HexLog),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

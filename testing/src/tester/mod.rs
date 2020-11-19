@@ -341,7 +341,7 @@ impl TestInfo {
 
                             ls.push(SourcedLog {
                                 name: src.to_string(),
-                                event: hex::encode(sig),
+                                event: event_name.clone(),
                                 log: ParsedOrNormalLog::Parsed(tss),
                             });
                             // break;
@@ -351,14 +351,14 @@ impl TestInfo {
                     ls.push(SourcedLog {
                         name: hex::encode(log.address.as_bytes()),
                         event: event_name.clone(),
-                        log: ParsedOrNormalLog::NotParsed(log.clone()),
+                        log: ParsedOrNormalLog::NotParsed(HexLog::from(log.clone())),
                     });
                 }
             } else {
                 ls.push(SourcedLog {
                     name: hex::encode(log.address.as_bytes()),
                     event: event_name.clone(),
-                    log: ParsedOrNormalLog::NotParsed(log.clone()),
+                    log: ParsedOrNormalLog::NotParsed(HexLog::from(log.clone())),
                 });
             }
         }
@@ -594,7 +594,12 @@ impl Handler<TestRequest> for Tester {
             }
             TestRequest::Test(src, test, opts) => {
                 if self.compiled.contracts.len() == 0 {
-                    return Box::pin(futures::future::ok(TestResponse::Failure("No contracts loaded".to_string())).into_actor(self));
+                    return Box::pin(
+                        futures::future::ok(TestResponse::Failure(
+                            "No contracts loaded".to_string(),
+                        ))
+                        .into_actor(self),
+                    );
                 }
                 let mut isEOA = false;
                 if let Some(ops) = opts {
@@ -881,7 +886,12 @@ pub fn is_tester(src: &str) -> bool {
 }
 
 pub fn is_test(src: &str) -> bool {
-    &src[0..4] == "test"
+    if src.len() > 3 {
+        &src[0..4] == "test"
+    } else {
+        false
+    }
+
 }
 
 pub fn is_fail_test(src: &str) -> bool {
