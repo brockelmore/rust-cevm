@@ -65,13 +65,15 @@ pub async fn response_router(
     req: Request<Body>,
     tester: Recipient<TestRequest>,
     compiler: Recipient<CompilerRequest>,
-    _evm: Recipient<EthRequest>,
+    evm: Recipient<EthRequest>,
     _me: Addr<TestingApi>,
 ) -> Result<Response<Body>> {
     match (req.method(), req.uri().path()) {
         (&Method::POST, "/load_compiled") => load_compile_process(req, compiler).await,
         (&Method::POST, "/compile") => compile_process(req, compiler).await,
         (&Method::POST, "/test") => test_process(req, tester).await,
+        (&Method::POST, "/bn") => bn(req, evm).await,
+        (&Method::POST, "/ts") => ts(req, evm).await,
         (&Method::POST, "/sim") => sim_process(req, tester).await,
         (&Method::GET, "/tests") => test_request(req, tester).await,
         (&Method::GET, _path) => home_request(req).await,
@@ -248,6 +250,44 @@ pub async fn test_process(
         .header("Access-Control-Allow-Origin", "*")
         .header("Access-Control-Allow-Methods", "OPTIONS, POST, GET")
         .body(Body::from(serde_json::to_string(&results)?))
+        .unwrap();
+    Ok(res)
+}
+
+pub async fn bn(
+    req: Request<Body>,
+    evm: Recipient<EthRequest>,
+) -> Result<Response<Body>> {
+    let whole_body = hyper::body::aggregate(req).await?;
+    let data: serde_json::Value = serde_json::from_reader(whole_body.reader())?;
+    println!("{:?}", data);
+    let as_str: String = serde_json::from_value(data["block"].clone()).unwrap();
+    let bn: web3::types::U256 = web3::types::U256::from_dec_str(&as_str).unwrap();
+    evm.send(EthRequest::set_block(bn));
+
+    let res = Response::builder()
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Access-Control-Allow-Methods", "OPTIONS, POST, GET")
+        .body(Body::default())
+        .unwrap();
+    Ok(res)
+}
+
+pub async fn ts(
+    req: Request<Body>,
+    evm: Recipient<EthRequest>,
+) -> Result<Response<Body>> {
+    let whole_body = hyper::body::aggregate(req).await?;
+    let data: serde_json::Value = serde_json::from_reader(whole_body.reader())?;
+    println!("{:?}", data);
+    let as_str: String = serde_json::from_value(data["timestamp"].clone()).unwrap();
+    let ts: web3::types::U256 = web3::types::U256::from_dec_str(&as_str).unwrap();
+    evm.send(EthRequest::set_timestamp(ts));
+
+    let res = Response::builder()
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Access-Control-Allow-Methods", "OPTIONS, POST, GET")
+        .body(Body::default())
         .unwrap();
     Ok(res)
 }

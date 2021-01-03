@@ -65,6 +65,7 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
 
     fn handle(&mut self, msg: EthRequest, _ctx: &mut SyncContext<Self>) -> Self::Result {
         // store backup of current state
+        let mut reset = true;
         let timestamp = self.backend.vicinity.block_timestamp;
         let curr_block = self.backend.vicinity.block_number;
 
@@ -121,7 +122,8 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
             }
         };
 
-
+        let mut new_bn = U256::zero();
+        let mut new_ts = U256::zero();
         let to_send = match msg {
             EthRequest::eth_accounts => EthResponse::eth_accounts(Vec::new()),
             EthRequest::eth_blockNumber => EthResponse::eth_blockNumber(exec.block_number()),
@@ -467,6 +469,16 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
             EthRequest::eth_getLogs(from_bn, to_bn, addr, topics) => {
                 EthResponse::eth_getLogs(self.backend.logs(from_bn, to_bn, addr, topics))
             }
+            EthRequest::set_block(bn) => {
+                reset = false;
+                new_bn = bn;
+                EthResponse::eth_unimplemented
+            }
+            EthRequest::set_timestamp(time) => {
+                reset = false;
+                new_ts = time;
+                EthResponse::eth_unimplemented
+            }
             _ => {
                 println!("!implemented");
                 EthResponse::eth_unimplemented
@@ -501,8 +513,19 @@ impl actix::prelude::Handler<EthRequest> for EVMService {
         self.backend.local_block_num += U256::from(1);
 
         // reset vicinity to backups
-        self.backend.vicinity.block_number = curr_block;
-        self.backend.vicinity.block_timestamp = timestamp;
+        if reset {
+            self.backend.vicinity.block_number = curr_block;
+            self.backend.vicinity.block_timestamp = timestamp;
+        } else {
+            if new_bn != U256::zero() {
+                self.backend.vicinity.block_number = new_bn;
+            }
+
+            if new_ts != U256::zero() {
+                self.backend.vicinity.block_timestamp = new_ts;
+            }
+        }
+
         self.backend.vicinity.chain_id = U256::from(1337);
         to_send
     }

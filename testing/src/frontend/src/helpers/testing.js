@@ -65,12 +65,14 @@ export async function test(meta_testing) {
 	}
 
 	// execute test
+	let account = meta_testing.account? meta_testing.account : "683A78bA1f6b25E29fbBC9Cd1BFA29A51520De84";
 	let e = await fetch('http://localhost:2347/test', {
 		method: 'post',
 		body: JSON.stringify({
 			'tests': meta_testing.curr_test["full"],
 			"options": {
-				"testerIsEOA": true
+				"testerIsEOA": true,
+				"sender": account,
 			}
 		})
 	});

@@ -33,7 +33,7 @@
     e.stopPropagation();
   }
 
-  $:{console.log(node, newContracts)}
+  // $:{console.log(node, newContracts)}
 </script>
 
 {#if show}

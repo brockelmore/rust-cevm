@@ -401,8 +401,6 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
         self.tmp_bn = None;
         self.tmp_timestamp = None;
 
-
-
         match exit {
             Capture::Exit((s, v)) => (s, v, self.call_trace.clone()),
             Capture::Trap(_) => unreachable!(),
@@ -902,6 +900,30 @@ impl<'backend, 'config, B: Backend> StackExecutor<'backend, 'config, B> {
                     let slot = H256::from_slice(&input[36..68]);
                     forced_ret = self.storage(who, slot);
                     is_forced_ret = true;
+                }
+                // load
+                _ if sig == *"47e7ef24" => {
+                    let who = H160::from_slice(&input[16..36]);
+                    let amount = U256::from_big_endian(&input[36..68]);
+                    if self.state.contains_key(&who) {
+                        let acct = self.state.get_mut(&who).unwrap();
+                        acct.basic.balance = acct.basic.balance + amount;
+                        *acct = acct.clone();
+                    } else {
+                        let mut b = self.backend.basic(who);
+                        b.balance = b.balance + amount;
+                        let acct = StackAccount {
+                            basic: b.clone(),
+                            code: None,
+                            storage: BTreeMap::new(),
+                            original_storage: BTreeMap::new(),
+                            original_code: None,
+                            original_basic: b,
+                            reset_storage: false,
+                            reset_storage_backend: false,
+                        };
+                        self.state.insert(who, acct);
+                    }
                 }
                 _ => {}
             }

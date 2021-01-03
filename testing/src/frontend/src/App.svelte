@@ -36,6 +36,7 @@
 		trace_history,
 		test_history,
 		selected_test: "",
+		account: "",
 		avail_srcs: [],
 		avail_tests: [],
 		src_tests: [],

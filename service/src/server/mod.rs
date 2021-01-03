@@ -473,6 +473,34 @@ pub async fn evm_process(
             })
             .unwrap();
         }
+        "set_block" => {
+            let bn = serde_json::from_value::<U256>(data["params"][0]["block"].clone()).unwrap();
+            let result = evm
+                .send(EthRequest::set_block(bn))
+                .await;
+            f = serde_json::to_string(&RPCResponse {
+                id,
+                jsonrpc: "2.0".to_string(),
+                data: ResponseData::Success {
+                    result: U256::from(1),
+                },
+            })
+            .unwrap();
+        }
+        "set_timestamp" => {
+            let ts = serde_json::from_value::<U256>(data["params"][0]["timestamp"].clone()).unwrap();
+            let result = evm
+                .send(EthRequest::set_timestamp(ts))
+                .await;
+            f = serde_json::to_string(&RPCResponse {
+                id,
+                jsonrpc: "2.0".to_string(),
+                data: ResponseData::Success {
+                    result: U256::from(1),
+                },
+            })
+            .unwrap();
+        }
         "eth_getLogs" => {
             let from_block;
             match serde_json::from_value::<U256>(data["params"][0]["fromBlock"].clone()) {
@@ -499,6 +527,7 @@ pub async fn evm_process(
                         serde_json::from_value(data["params"][0]["address"].clone()).unwrap();
                     vec![e]
                 });
+            println!("{:?}", data);
             let topics: Vec<H256> =
                 serde_json::from_value(data["params"][0]["topics"].clone()).unwrap();
             let result = evm

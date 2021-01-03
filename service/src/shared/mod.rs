@@ -93,6 +93,8 @@ pub enum EthRequest {
     eth_getLogs(Option<U256>, Option<U256>, Vec<H160>, Vec<H256>),
     eth_chainId,
     eth_sim(H256, bool, Option<Vec<String>>),
+    set_block(U256),
+    set_timestamp(U256),
 }
 
 impl EthRequest {

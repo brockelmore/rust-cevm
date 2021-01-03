@@ -383,7 +383,10 @@ impl TestInfo {
                         if sig == t.function.clone() {
                             let tokens = f
                                 .decode_input(&hex::decode(t.input.clone()).unwrap())
-                                .unwrap();
+                                .unwrap_or_else(|_| {
+                                    println!("bad, {:?}, {:?}", f, t.input.clone());
+                                    panic!("here");
+                                });
                             let mut tss = Vec::new();
                             for t in tokens.iter() {
                                 tss.push(BetterToken::from(t.clone()));
@@ -601,7 +604,8 @@ impl Handler<TestRequest> for Tester {
                         .into_actor(self),
                     );
                 }
-                let mut isEOA = false;
+
+                let mut isEOA = true;
                 if let Some(ops) = opts {
                     if let Some(sender) = ops.sender {
                         self.sender = sender;
@@ -610,6 +614,7 @@ impl Handler<TestRequest> for Tester {
                         isEOA = EOA;
                     }
                 }
+                println!("isEOA {:?}", isEOA);
 
                 let is_deployed = self.is_deployed(&src);
                 let mut contract = H160::zero();

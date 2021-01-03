@@ -48,7 +48,15 @@ impl From<Token> for BetterToken {
     fn from(tkn: Token) -> BetterToken {
         match tkn {
             Token::Address(a) => BetterToken::Address(BetterH160(a)),
-            Token::FixedBytes(b) => BetterToken::FixedBytes(H256::from_slice(b.as_slice())),
+            Token::FixedBytes(b) => {
+                let mut k = [0; 32];
+                let mut ctr = 0;
+                for i in 32-b.len()..32 {
+                    k[i] = b[ctr];
+                    ctr += 1;
+                }
+                BetterToken::FixedBytes(H256::from_slice(&k))
+            },
             Token::Bytes(b) => BetterToken::Bytes(hex::encode(b)),
             Token::Int(u) => BetterToken::Int(u),
             Token::Uint(u) => BetterToken::Uint(u),

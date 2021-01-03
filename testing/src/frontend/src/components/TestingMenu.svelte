@@ -6,42 +6,87 @@
   import { update_tests, load_history, test, srcs_from_tests, tests, compile, load_compiled, sim } from "../helpers/testing";
   export let meta_testing;
 
+  async function new_bn(bn) {
+  	let e = await fetch('http://localhost:2347/bn', {
+  		method: 'post',
+  		body: JSON.stringify({
+  			'block': bn
+  		})
+  	});
+  }
+
+
+  async function new_ts(ts) {
+  	let e = await fetch('http://localhost:2347/ts', {
+  		method: 'post',
+  		body: JSON.stringify({
+  			'timestamp': ts
+  		})
+  	});
+  }
+
   function update() {
     console.log("update here");
     dispatch("message", {text: "update"});
   }
 
+  let bn;
+  let ts;
 </script>
 
-<div class="menu">
-  <span class='src selector-label'>Source Directory:</span>
-  <input class='srcsel' bind:value={meta_testing.src_dir}>
-  <div class='srcexec'>
-    <button on:click={() => compile(meta_testing).then(() => { update(); }) }>Compile</button>
-    <button on:click={() => load_compiled(meta_testing).then(() => { update(); }) }>Load Compiled</button>
+<div class="holder">
+  <div class="menu" style="grid-area: l;">
+    <span class='src selector-label'>Source Directory:</span>
+    <input class='srcsel' bind:value={meta_testing.src_dir}>
+    <div class='srcexec'>
+      <button on:click={() => compile(meta_testing).then(() => { update(); }) }>Compile</button>
+      <button on:click={() => load_compiled(meta_testing).then(() => { update(); }) }>Load Compiled</button>
+    </div>
+
+    <span class='c'>Contract: </span>
+    <div class="csel themed">
+      <Select items={meta_testing.avail_srcs} on:select={(e) => {update_tests(meta_testing, e); update(); }}> </Select>
+    </div>
+
+    <span class='t selector-label'>Test: </span>
+    <div class="tsel themed">
+      <Select items={meta_testing.src_tests} on:select={(e) => { meta_testing.selected_test = e.detail.value; update(); }}> </Select>
+    </div>
+    <button class='texec' on:click={() => {test(meta_testing).then(() => { update()}); }}>Test</button>
+
+  	<span class='tr selector-label'>Traces: </span>
+  	<div class="trsel themed">
+  		<Select items={meta_testing.test_history} on:select={(e) => {load_history(meta_testing, e); update(); }}> </Select>
+  	</div>
   </div>
 
-  <span class='c'>Contract: </span>
-  <div class="csel themed">
-    <Select items={meta_testing.avail_srcs} on:select={(e) => {update_tests(meta_testing, e); update(); }}> </Select>
+  <div class="menu" style="grid-area: r;">
+    <span class='src selector-label'>Block Number:</span>
+    <input class='srcsel' bind:value={bn}>
+    <div class='srcexec'>
+      <button on:click={() => new_bn(bn).then(() => { update(); }) }>Update Block</button>
+    </div>
+
+    <span class='c selector-label'>Block Timestamp:</span>
+    <input class='srcsel' style="grid-area: csel !important;" bind:value={ts}>
+    <div class='cexec'>
+      <button on:click={() => new_ts(ts).then(() => { update(); }) }>Update Timestamp</button>
+    </div>
+    <!-- <input bind:value={meta_testing.account}> -->
   </div>
-
-  <span class='t selector-label'>Test: </span>
-  <div class="tsel themed">
-    <Select items={meta_testing.src_tests} on:select={(e) => { meta_testing.selected_test = e.detail.value; update(); }}> </Select>
-  </div>
-  <button class='texec' on:click={() => {test(meta_testing).then(() => { update()}); }}>Test</button>
-
-	<span class='tr selector-label'>Traces: </span>
-	<div class="trsel themed">
-		<Select items={meta_testing.test_history} on:select={(e) => {load_history(meta_testing, e); update(); }}> </Select>
-	</div>
-
-
 </div>
 
 
 <style>
+  .holder {
+    display: grid;
+    grid-template-columns: 115px 50fr 40fr 90f4;
+    grid-template-rows: 100fr;
+    grid-template-areas: "l r";
+    font-size: 13px;
+    align-items: center;
+    margin: 5px 0px;
+  }
   .menu {
     display: grid;
     grid-template-columns: 115px 50fr 40fr;
