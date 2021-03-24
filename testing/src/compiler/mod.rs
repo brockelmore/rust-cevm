@@ -148,9 +148,14 @@ impl Compiler {
                                                     },
                                                     "metadata" => match val {
                                                         JsonValue::String(as_s) => {
-                                                            json[c_name][c_key][key] =
-                                                                serde_json::from_str(&as_s)
-                                                                    .unwrap();
+                                                            if as_s == "" {
+
+                                                            } else {
+                                                                json[c_name][c_key][key] =
+                                                                    serde_json::from_str(&as_s)
+                                                                        .unwrap();
+                                                            }
+
                                                         }
                                                         _ => {}
                                                     },

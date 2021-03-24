@@ -32,6 +32,8 @@ export function process_subtrace(x, num, depth, parent_num) {
       } else if (x['inputs']["String"] && x['inputs']["String"].length > 0) {
         me['inputs'] = [x['inputs']['String']]
       }
+    } else {
+        me['inputs'] = x['inputs']['String'].length / 2 - 1
     }
 
 

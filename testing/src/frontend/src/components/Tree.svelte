@@ -129,11 +129,15 @@
             <span style="color:{percentageToColor(node.value/total_used_gas)};">[{numeral(node.value).format('0,0')}]: </span>
             <span class="contract">{node.name + ":"}</span>
             <span class="function">{node.function}</span>
+            {#if node.created}
+              <span class="bytesize">{node.inputs} bytes</span>
+            {/if}
           </p>
         </div>
         {#if node.inputs}
           <span class="input">({prune(node.inputs)})</span>
         {/if}
+
       </slot>
     </TreeNode>
     {/each}
