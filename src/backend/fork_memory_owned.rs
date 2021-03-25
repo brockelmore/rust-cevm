@@ -215,20 +215,29 @@ impl Backend for ForkMemoryBackendOwned {
                 .collect();
             let parsed: Vec<web3::types::Log> = matched_logs
                 .iter()
-                .map(|l| web3::types::Log {
-                    address: l.address,
-                    topics: l.topics.clone(),
-                    data: web3::types::Bytes(l.data.clone()),
-                    block_hash: None,
-                    block_number: Some(web3::types::U64::from(
-                        self.vicinity.block_number.clone().as_u64(),
-                    )),
-                    transaction_hash: None,
-                    transaction_index: None,
-                    log_index: None,
-                    transaction_log_index: None,
-                    log_type: None,
-                    removed: Some(false),
+                .map(|l| {
+                    // TODO: Transforming individual backend::H256 into web3::types::H256 - not efficient
+                    let new_topics: Vec<web3::types::H256> = l
+                        .topics
+                        .clone()
+                        .iter()
+                        .map(|e| web3::types::H256::from_slice(e.as_bytes()))
+                        .collect();
+                    web3::types::Log {
+                        address: web3::types::H160::from_slice(l.address.as_bytes()),
+                        topics: new_topics,
+                        data: web3::types::Bytes(l.data.clone()),
+                        block_hash: None,
+                        block_number: Some(web3::types::U64::from(
+                            self.vicinity.block_number.clone().as_u64(),
+                        )),
+                        transaction_hash: None,
+                        transaction_index: None,
+                        log_index: None,
+                        transaction_log_index: None,
+                        log_type: None,
+                        removed: Some(false),
+                    }
                 })
                 .collect();
             logs.extend(parsed.clone());
@@ -277,8 +286,6 @@ impl ApplyBackend for ForkMemoryBackendOwned {
                                 self.state.insert(address, acct);
                                 account = self.state.get_mut(&address).unwrap();
                             }
-
-
 
                             if created_contracts.contains(&address) {
                                 account.created = true;

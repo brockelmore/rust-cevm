@@ -1,6 +1,7 @@
 use crate::backend::memory::TxReceipt;
 use ethers_core::types::*;
 use jsonrpc_core as rpc;
+use primitive_types::{H160, H256, U256};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -214,7 +215,10 @@ impl Provider {
     }
 
     /// Get storage for a particular index at an address
-    pub fn get_block_by_hash_txs(&self, bh: H256) -> web3::types::Block<web3::types::Transaction> {
+    pub fn get_block_by_hash_txs(
+        &self,
+        bh: web3::types::H256,
+    ) -> web3::types::Block<web3::types::Transaction> {
         self.check_delay();
         //println!("eth_getBlockByHashTxs");
         let index = serialize(&bh);
@@ -339,7 +343,8 @@ impl Provider {
                 .json(&request)
                 .send()
                 .expect("provider error, get_balance");
-            res.json::<Response<U256>>().expect("I retried, but couldn't unwrap response")
+            res.json::<Response<U256>>()
+                .expect("I retried, but couldn't unwrap response")
         });
         res.data.into_result().unwrap()
     }
@@ -396,7 +401,18 @@ impl Provider {
         topics: Vec<H256>,
     ) -> Vec<web3::types::Log> {
         self.check_delay();
-        //println!("get_logs: {:?}", addrs);
+        // TODO: Transforming individual backend::H160 into web3::types::H160 - not efficient
+        let new_addrs: Vec<web3::types::H160> = addrs
+            .clone()
+            .iter()
+            .map(|e| web3::types::H160::from_slice(e.as_bytes()))
+            .collect();
+        // TODO: Transforming individual backend::H256 into web3::types::H256 - not efficient
+        let new_topics: Vec<web3::types::H256> = topics
+            .clone()
+            .iter()
+            .map(|e| web3::types::H256::from_slice(e.as_bytes()))
+            .collect();
         let filter = serialize(
             &web3::types::FilterBuilder::default()
                 .from_block(web3::types::BlockNumber::Number(web3::types::U64::from(
@@ -405,8 +421,8 @@ impl Provider {
                 .to_block(web3::types::BlockNumber::Number(web3::types::U64::from(
                     to.as_u64(),
                 )))
-                .address(addrs)
-                .topics(Some(topics), None, None, None)
+                .address(new_addrs)
+                .topics(Some(new_topics), None, None, None)
                 .build(),
         );
         let request = build_request(0, "eth_getLogs", vec![filter]);
@@ -438,9 +454,16 @@ impl Provider {
         let mut logs = Vec::with_capacity(res.logs.len());
         for log in res.logs.iter() {
             let web3::types::Bytes(raw) = log.data.clone();
+            // TODO: Transforming individual web3::types::H256 into backend::H256 - not efficient
+            let new_vec: Vec<H256> = log
+                .topics
+                .clone()
+                .iter()
+                .map(|e| H256::from_slice(e.as_bytes()))
+                .collect();
             logs.push(crate::backend::Log {
-                address: log.address,
-                topics: log.topics.clone(),
+                address: H160::from_slice(log.address.as_bytes()),
+                topics: new_vec,
                 data: raw,
             });
         }
