@@ -13,8 +13,8 @@ evm-core = { version = "0.17", path = "core", default-features = false }
 evm-gasometer = { version = "0.17", path = "gasometer", default-features = false }
 evm-runtime = { version = "0.17", path = "runtime", default-features = false }
 sha3 = { version = "0.8", default-features = false }
-rlp = { version = "0.4", default-features = false }
-primitive-types = { version = "0.7", default-features = false, features = ["rlp"] }
+rlp = { version = "0.5.1", default-features = false }
+primitive-types = { version = "0.9.1", default-features = false, features = ["rlp"] }
 serde_json = "1.0"
 serde = { version = "1.0.90", features = ["derive"], optional = true }
 jsonrpc-core = "14.0.0"
@@ -26,7 +26,7 @@ web3 = { version = "0.17.0" }
 hex = "0.4.2"
 
 [features]
-default = ["std", "local"]
+default = ["std", "local", "with-serde"]
 with-serde = ["serde", "primitive-types/serde"]
 std = ["evm-core/std", "evm-gasometer/std", "evm-runtime/std", "sha3/std", "primitive-types/std", "serde/std"]
 web = []
