@@ -287,7 +287,7 @@ impl Provider {
     /// Gets the bytecode for an address
     pub fn get_code(&self, address: H160, block: Option<U256>) -> Bytes {
         if address == "7109709ecfa91a80626ff3989d68f67f5b1dd12d".parse().unwrap() {
-            return Bytes::new();
+            return Bytes::default();
         }
         self.check_delay();
         //println!("eth_getCode, {:?}", address);
